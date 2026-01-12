@@ -1,0 +1,16 @@
+stages:
+  - pages
+
+pages:
+  stage: pages
+  image: python:3.11
+  script:
+    - pip install mkdocs mkdocs-material
+    - cp README.md docs/
+    - mkdocs build
+    - mv site public
+  artifacts:
+    paths:
+      - public
+  only:
+    - main

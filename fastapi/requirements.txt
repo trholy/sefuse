@@ -1,0 +1,9 @@
+fastapi==0.127.0
+uvicorn<=0.40.0
+qdrant-client==1.16.2
+httpx<=0.28.1
+polars==1.36.1
+transformers==4.57.3
+beautifulsoup4<=4.14.3
+requests<=2.32.5
+apscheduler<=3.11.2

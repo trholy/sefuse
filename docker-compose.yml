@@ -1,0 +1,52 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: sefuse_qdrant
+    ports:
+      - "6333:6333"
+    volumes:
+      - ./data/qdrant:/qdrant/storage
+
+  ollama:
+    build: ./ollama
+    container_name: sefuse_ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./ollama/data:/root/.ollama
+    environment:
+      - MODEL=nomic-embed-text
+
+  fastapi:
+    build: ./fastapi
+    container_name: sefuse_fastapi
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data/funding_data:/app/data
+      - ./data_processing/src:/app/data_processing
+    depends_on:
+      - qdrant
+      - ollama
+    environment:
+      - MODEL=nomic-embed-text
+      - TOKENIZER=nomic-ai/nomic-embed-text-v1.5
+      - CRON_TRIGGER_DATA_PROCESSING=0
+      - CRON_TRIGGER_EMBEDDING=4
+      - DOWNLOAD_FILE=https://nc.eah-jena.de/public.php/dav/files/AcwgtZiMaXXAXMF/?accept=zip
+      - OLLAMA_URL=http://ollama:11434
+      - VECTOR_DB_HOST=qdrant
+      - QDRANT_PORT=6333
+
+  streamlit:
+    build: ./streamlit
+    container_name: sefuse_streamlit
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data/funding_data:/app/data
+    depends_on:
+      - fastapi
+    environment:
+      - MODEL=nomic-embed-text
+      - FASTAPI_URL=http://fastapi:8000
