@@ -12,7 +12,7 @@
 
 The idea: users enter their **project description** into a web interface and automatically receive **matching funding programs**, including a short description and a direct link to the funding database.
 
-A short demo is available here: [▶ YouTube Video](https://www.youtube.com/watch?v=isGOAKTa51o)
+A short demo is available here: [▶ YouTube Video](https://youtu.be/wau3Kw_P8QQ)
 
 ---
 
