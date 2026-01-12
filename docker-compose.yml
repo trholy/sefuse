@@ -33,7 +33,7 @@ services:
       - TOKENIZER=nomic-ai/nomic-embed-text-v1.5
       - CRON_TRIGGER_DATA_PROCESSING=0
       - CRON_TRIGGER_EMBEDDING=4
-      - DOWNLOAD_FILE=https://nc.eah-jena.de/public.php/dav/files/AcwgtZiMaXXAXMF/?accept=zip
+      - DOWNLOAD_FILE=https://foerderdatenbankdump.fra1.cdn.digitaloceanspaces.com/data/parquet_data.zip
       - OLLAMA_URL=http://ollama:11434
       - VECTOR_DB_HOST=qdrant
       - QDRANT_PORT=6333
