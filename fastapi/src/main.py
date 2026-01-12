@@ -49,16 +49,14 @@ async def lifespan(app: FastAPI):
 
     scheduler.add_job(
         schedule_data_processing,
-        trigger=IntervalTrigger(minutes=1),
-        #trigger=CronTrigger(hour=CRON_TRIGGER_DATA_PROCESSING),
+        trigger=CronTrigger(hour=CRON_TRIGGER_DATA_PROCESSING),
         id="data_processing_job",
         replace_existing=True
     )
 
     scheduler.add_job(
         schedule_embedding_pipeline,
-        trigger=IntervalTrigger(seconds=32),
-        #trigger=CronTrigger(hour=CRON_TRIGGER_EMBEDDING),
+        trigger=CronTrigger(hour=CRON_TRIGGER_EMBEDDING),
         id="embedding_pipeline_job",
         replace_existing=True
     )
