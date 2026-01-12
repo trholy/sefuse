@@ -6,6 +6,8 @@
 
 ## Overview
 
+[Read the Docs.](https://zaki-eah.gitpages.uni-jena.de/sefuse/)
+
 **SeFuSe** is a tool for **semantic search of funding programs** in the Federal Funding Database.
 
 The idea: users enter their **project description** into a web interface and automatically receive **matching funding programs**, including a short description and a direct link to the funding database.
