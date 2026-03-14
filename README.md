@@ -6,7 +6,7 @@
 
 ## Overview
 
-[Read the Docs.](https://zaki-eah.gitpages.uni-jena.de/sefuse/)
+[Read the Docs.](https://to82lod.gitpages.uni-jena.de/sefuse/)
 
 **SeFuSe** is a tool for **semantic search of funding programs** in the Federal Funding Database.
 
