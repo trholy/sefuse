@@ -16,6 +16,32 @@ A short demo is available here: [▶ YouTube Video](https://youtu.be/wau3Kw_P8QQ
 
 ---
 
+Here’s a cleaner, more polished version with clearer flow and tone:
+
+---
+
+## Quick Start
+
+Before you begin, make sure you have the following installed on your system:
+
+* [Git](https://git-scm.com/install/)
+* [Docker Desktop](https://docs.docker.com/desktop/#products-inside-docker-desktop)
+
+Then run the following commands:
+
+```bash
+git clone https://github.com/trholy/sefuse
+cd sefuse
+docker-compose up --build
+```
+
+The build process may take several minutes, as required services need to be downloaded and installed.
+
+Once the setup is complete, you can access the Streamlit web interface at:
+[http://localhost:8501](http://localhost:8501)
+
+---
+
 ## How It Works
 
 The system is based on an embedding model and a **vector database**, which is regularly populated with new programs from the funding database.
