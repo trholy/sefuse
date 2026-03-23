@@ -3,8 +3,8 @@ import uuid
 
 import requests
 
-from config import EuFundingConfig
-from processing import (
+from data_processing.config import EuFundingConfig
+from data_processing.processing import (
     CommonDataPipeline,
     DataCleaner,
     EuFundingProcessor,
@@ -13,7 +13,7 @@ from processing import (
     UuidGenerator,
     UniqueValueExtractor,
 )
-from utils import EuFundingFetcher
+from data_processing.utils import EuFundingFetcher
 
 logger = logging.getLogger(__name__)
 

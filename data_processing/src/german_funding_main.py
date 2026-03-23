@@ -2,8 +2,8 @@ import uuid
 
 import polars as pl
 
-from config import GermanFundingConfig
-from processing import (
+from data_processing.config import GermanFundingConfig
+from data_processing.processing import (
     CommonDataPipeline,
     DataCleaner,
     GermanFundingProcessor,
@@ -11,7 +11,7 @@ from processing import (
     UuidGenerator,
     UniqueValueExtractor,
 )
-from utils import FileDownloader, ZipExtractor
+from data_processing.utils import FileDownloader, ZipExtractor
 
 
 def run_german_funding_pipeline() -> None:
