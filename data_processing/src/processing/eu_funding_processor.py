@@ -86,6 +86,30 @@ class EuFundingProcessor:
             return None
 
     @staticmethod
+    def _build_funding_area(
+        keywords: list[str],
+        identifier: str | None,
+        call_id: str | None,
+    ) -> list[str]:
+        blocked = {
+            value
+            for value in (identifier, call_id)
+            if value is not None
+        }
+
+        filtered_keywords: list[str] = []
+        seen: set[str] = set()
+        for keyword in keywords:
+            if keyword in blocked:
+                continue
+            if keyword in seen:
+                continue
+            seen.add(keyword)
+            filtered_keywords.append(keyword)
+
+        return filtered_keywords
+
+    @staticmethod
     def _compute_id_hash(uuid_source: str) -> str:
         return hashlib.md5(uuid_source.encode("utf-8")).hexdigest()
 
@@ -128,6 +152,8 @@ class EuFundingProcessor:
 
         rows = []
         for item in eu_calls:
+            identifier = self._normalize_string(item.get("id"))
+            call_id = self._normalize_string(item.get("call_id"))
             title = self._normalize_string(item.get("title")) or "N/A"
             summary = self._html_cleaner.clean(item.get("summary"))
             description_from_html = self._html_cleaner.clean(
@@ -140,19 +166,22 @@ class EuFundingProcessor:
             deadline = self._parse_datetime(item.get("deadline"))
             status_code = self._normalize_string(item.get("status_code"))
             keywords = self._normalize_list(item.get("keywords"))
+            funding_area = self._build_funding_area(
+                keywords=keywords,
+                identifier=identifier,
+                call_id=call_id,
+            )
 
             if not self._should_keep_item(
                 title=title,
                 summary=summary,
                 cleaned_description_html=description_from_html,
-                keywords=keywords,
+                keywords=funding_area,
                 deadline=deadline,
                 status_code=status_code,
             ):
                 continue
 
-            call_id = self._normalize_string(item.get("call_id"))
-            identifier = self._normalize_string(item.get("id"))
             url = self._normalize_string(item.get("url"))
 
             uuid_source = call_id or identifier or url or title
@@ -181,7 +210,7 @@ class EuFundingProcessor:
                     "contact_info_email": None,
                     "contact_info_website": None,
                     "funding_type": ["Zuschuss"],
-                    "funding_area": keywords,
+                    "funding_area": funding_area,
                     "funding_location": ["EU"],
                     "eligible_applicants": [],
                     "funding_body": self._normalize_string(item.get("programme")),
