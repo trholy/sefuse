@@ -1,6 +1,10 @@
-from .config import DataConfig
+from .config import (
+    EuFundingConfig,
+    GermanFundingConfig,
+)
 
 
 __all__ = [
-    "DataConfig"
+    "GermanFundingConfig",
+    "EuFundingConfig",
 ]
