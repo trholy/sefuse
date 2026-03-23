@@ -10,7 +10,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
 
-from data_processing.main import run_german_funding_pipeline
+from data_processing.german_funding_main import run_german_funding_pipeline
 from utils import EmbeddingService, Pipeline, QdrantManager
 
 logger = logging.getLogger(__name__)

@@ -9,7 +9,7 @@ import polars as pl
 from transformers import AutoTokenizer
 
 from .qdrant_utils import QdrantManager
-from data_processing.main import run_german_funding_pipeline
+from data_processing.german_funding_main import run_german_funding_pipeline
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
