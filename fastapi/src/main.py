@@ -10,7 +10,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
 
-from data_processing.main import data_processing_pipeline
+from data_processing.main import run_german_funding_pipeline
 from utils import EmbeddingService, Pipeline, QdrantManager
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ async def lifespan(app: FastAPI):
 
     async def run_data_processing():
         logger.info("Starting data processing job")
-        await loop.run_in_executor(None, data_processing_pipeline)
+        await loop.run_in_executor(None, run_german_funding_pipeline)
 
     async def run_embedding_pipeline():
         logger.info("Starting embedding pipeline job")
