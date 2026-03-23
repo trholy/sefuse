@@ -136,7 +136,7 @@ fastapi:
   ports:
     - "8000:8000"
   volumes:
-    - ./data/funding_data:/app/data
+    - ./data/german_funding_database:/app/data
     - ./data_processing/src:/app/data_processing
   depends_on:
     - qdrant
@@ -190,7 +190,7 @@ streamlit:
   ports:
     - "8501:8501"
   volumes:
-    - ./data/funding_data:/app/data
+    - ./data/german_funding_database:/app/data
   depends_on:
     - fastapi
   environment:

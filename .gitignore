@@ -1,7 +1,7 @@
 /ollama/data/*
 !/ollama/data/.gitkeep
-/data/funding_data/*
-!/data/funding_data/.gitkeep
+/data/german_funding_database/*
+!/data/german_funding_database/.gitkeep
 /data/qdrant/*
 !/data/qdrant/.gitkeep
 
