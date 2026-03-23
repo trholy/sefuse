@@ -33,7 +33,13 @@ services:
       - TOKENIZER=nomic-ai/nomic-embed-text-v1.5
       - CRON_TRIGGER_DATA_PROCESSING=0
       - CRON_TRIGGER_EMBEDDING=4
-      - DOWNLOAD_FILE=https://foerderdatenbankdump.fra1.cdn.digitaloceanspaces.com/data/parquet_data.zip
+      - GERMAN_FUNDING_DATA=https://foerderdatenbankdump.fra1.cdn.digitaloceanspaces.com/data/parquet_data.zip
+      - EU_API_URL=https://api.tech.ec.europa.eu/search-api/prod/rest/search
+      - EU_API_KEY=SEDIA
+      - EU_PAGE_SIZE=50
+      - EU_MAX_PAGES=100
+      - EU_REQUEST_TIMEOUT_SECONDS=30
+      - EU_PAGE_DELAY_SECONDS=0.2
       - OLLAMA_URL=http://ollama:11434
       - VECTOR_DB_HOST=qdrant
       - QDRANT_PORT=6333
