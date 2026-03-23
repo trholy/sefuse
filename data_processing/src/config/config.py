@@ -3,8 +3,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-GERMAN_FUNDING_DATA = os.getenv(
-    "DOWNLOAD_FILE",
+GERMAN_FUNDING_DATA_URL = os.getenv(
+    "GERMAN_FUNDING_DATA_URL",
     "https://foerderdatenbankdump.fra1.cdn.digitaloceanspaces.com/data/parquet_data.zip",
 )
 EU_API_URL = os.getenv(
@@ -22,12 +22,12 @@ EU_PAGE_DELAY_SECONDS = float(os.getenv("EU_PAGE_DELAY_SECONDS", "0.2"))
 @dataclass(frozen=True)
 class GermanFundingConfig:
     data_dir: Path = Path("data")
-    zip_url: str = GERMAN_FUNDING_DATA
+    zip_url: str = GERMAN_FUNDING_DATA_URL
 
-    zip_path: Path = data_dir / "parquet_data.zip"
-    raw_parquet: Path = data_dir / "parquet_data.parquet"
-    cleaned_parquet: Path = data_dir / "parquet_data_cleaned.parquet"
-    uuid_parquet: Path = data_dir / "parquet_data_uuid.parquet"
+    zip_path: Path = data_dir / "german_parquet_data.zip"
+    raw_parquet: Path = data_dir / "german_parquet_data.parquet"
+    cleaned_parquet: Path = data_dir / "german_parquet_data_cleaned.parquet"
+    uuid_parquet: Path = data_dir / "german_parquet_data_uuid.parquet"
 
 
 @dataclass(frozen=True)
