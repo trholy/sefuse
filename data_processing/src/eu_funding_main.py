@@ -69,6 +69,7 @@ def run_eu_funding_pipeline() -> None:
         uuid_path=config.uuid_parquet,
         source_column=UUID_SOURCE_COLUMN,
         data_dir=config.data_dir,
+        export_columns=["funding_area"],
         export_file_prefix="eu_",
         columns_to_drop_before_store=[UUID_SOURCE_COLUMN],
     )
