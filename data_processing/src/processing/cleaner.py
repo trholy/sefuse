@@ -20,14 +20,32 @@ class DataCleaner:
         self._html_cleaner = html_cleaner
 
     def clean_dataframe(self, df: pl.DataFrame) -> pl.DataFrame:
+        short_description_expr = pl.col("description").str.extract(
+            r"<h3>\s*Kurztext\s*</h3>(.*?)<h3>\s*Volltext\s*</h3>",
+            1,
+        )
+        full_description_expr = pl.col("description").str.extract(
+            r"<h3>\s*Volltext\s*</h3>(.*)$",
+            1,
+        )
+
+        # Preserve already mapped values (e.g. EU input) and only fill
+        # from HTML sections when they are not present yet.
+        if "project_short_description" in df.columns:
+            short_description_expr = pl.coalesce([
+                pl.col("project_short_description"),
+                short_description_expr,
+            ])
+
+        if "project_full_description" in df.columns:
+            full_description_expr = pl.coalesce([
+                pl.col("project_full_description"),
+                full_description_expr,
+            ])
 
         df = df.with_columns([
-            pl.col("description").str.extract(
-                r"<h3>\s*Kurztext\s*</h3>(.*?)<h3>\s*Volltext\s*</h3>",
-                1).alias("project_short_description"),
-            pl.col("description").str.extract(
-                r"<h3>\s*Volltext\s*</h3>(.*)$",
-                1).alias("project_full_description"),
+            short_description_expr.alias("project_short_description"),
+            full_description_expr.alias("project_full_description"),
         ])
 
         df = df.with_columns(
