@@ -9,7 +9,7 @@ import polars as pl
 from transformers import AutoTokenizer
 
 from .qdrant_utils import QdrantManager
-from data_processing.main import data_processing_pipeline
+from data_processing.main import run_german_funding_pipeline
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -22,7 +22,7 @@ TOKENIZER = os.getenv('TOKENIZER', 'nomic-ai/nomic-embed-text-v1.5')
 def download_job():
     try:
         logger.info("Triggering data processing pipeline...")
-        data_processing_pipeline()
+        run_german_funding_pipeline()
         logger.info(">>> Pipeline finished successfully")
     except Exception as e:
         logger.info(f"Pipeline failed: {e}")
