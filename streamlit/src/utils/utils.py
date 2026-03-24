@@ -1,6 +1,10 @@
 import time
 from typing import List, Any, Union, Dict
 import logging
+from datetime import datetime
+
+import requests
+import streamlit as st
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -100,3 +104,104 @@ def aggregate_chunks(matches: List[Dict]) -> List[Dict]:
                 r.get("matching_score", 0)
             )
     return list(aggregated.values())
+
+
+def search_projects(
+        fastapi_url: str,
+        model: str,
+        query: str,
+        search_limit: int,
+        endpoint: str,
+        timeout: int = 30
+) -> List[Dict]:
+    """Run semantic search request against the backend and return matches."""
+    response = requests.post(
+        f"{fastapi_url}{endpoint}",
+        json={
+            "model": model,
+            "messages": [{"role": "user", "content": query}],
+            "limit": search_limit
+        },
+        timeout=timeout
+    )
+    response.raise_for_status()
+    data = response.json()
+    return data.get("matches", [])
+
+
+def render_german_project_result(result: Dict) -> None:
+    """Render a single funding project card."""
+    st.subheader(
+        f"[{result.get('project_title', 'No title')}]"
+        f"({result.get('project_website', '#')})"
+    )
+    st.write(
+        "**Short description:**",
+        result.get("project_short_description", "N/A")
+    )
+    st.write(
+        "**Full description:**",
+        result.get("project_full_description", "N/A")
+    )
+
+    try:
+        on_website_from = datetime.fromisoformat(result.get("on_website_from"))
+        last_updated = datetime.fromisoformat(result.get("last_updated"))
+        st.write(
+            "**On the website since:**",
+            on_website_from.strftime("%d %b %Y, %H:%M")
+        )
+        st.write(
+            "**Last updated:**",
+            last_updated.strftime("%d %b %Y, %H:%M")
+        )
+    except Exception:
+        pass
+
+    st.markdown(f"**Type of funding:** {safe_join(result.get('funding_type'))}")
+    st.markdown(f"**Target area:** {safe_join(result.get('funding_location'))}")
+    st.markdown(f"**Funding area:** {safe_join(result.get('funding_area'))}")
+    st.markdown(f"**Eligible applicants:** {safe_join(result.get('eligible_applicants'))}")
+    st.write(f"**Score:** {result.get('matching_score', 0) * 100:.1f} %")
+
+
+def _parse_datetime(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    normalized = text.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+
+
+def render_eu_project_result(result: Dict) -> None:
+    """Render a single EU funding project card."""
+    st.subheader(
+        f"[{result.get('project_title', 'No title')}]"
+        f"({result.get('project_website', '#')})"
+    )
+    st.write("**Description:**", result.get("project_full_description", "N/A"))
+
+    start_date = _parse_datetime(result.get("start_date"))
+    deadline = _parse_datetime(result.get("deadline"))
+
+    if start_date is not None:
+        st.write(
+            "**Planned opening date:**",
+            start_date.strftime("%d %b %Y, %H:%M")
+        )
+    if deadline is not None:
+        st.write(
+            "**Deadline:**",
+            deadline.strftime("%d %b %Y, %H:%M")
+        )
+
+    st.write(f"**Score:** {result.get('matching_score', 0) * 100:.1f} %")
