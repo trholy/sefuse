@@ -8,7 +8,8 @@ from .cleaner import HtmlCleaner
 
 EU_STATUS_FORTHCOMING = "31094501"
 EU_STATUS_OPEN = "31094502"
-EU_ALLOWED_STATUS_CODES = {EU_STATUS_FORTHCOMING, EU_STATUS_OPEN}
+EU_STATUS_CLOSED = "31094503"
+EU_ALLOWED_STATUS_CODES = {EU_STATUS_FORTHCOMING, EU_STATUS_OPEN, EU_STATUS_CLOSED}
 
 UUID_SOURCE_COLUMN = "uuid_source_call_id"
 MIN_DESCRIPTION_LENGTH = 25
@@ -57,6 +58,11 @@ class EuFundingProcessor:
 
         as_text = str(value).strip()
         return as_text or None
+
+    @staticmethod
+    def _parse_status(status_code: str) -> bool:
+        EU_ACTIVE_STATUS_CODES = {EU_STATUS_FORTHCOMING, EU_STATUS_OPEN}
+        return status_code not in EU_ACTIVE_STATUS_CODES
 
     @staticmethod
     def _normalize_list(value: object) -> list[str]:
@@ -220,7 +226,7 @@ class EuFundingProcessor:
                     "previous_update_dates": [],
                     "date_2": deadline,
                     "date_1": self._parse_datetime(item.get("start_date")),
-                    "deleted": False,
+                    "deleted": self._parse_status(status_code),
                     "project_short_description": summary,
                     "project_full_description": description_from_html,
                     UUID_SOURCE_COLUMN: uuid_source,
