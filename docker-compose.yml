@@ -31,9 +31,15 @@ services:
     environment:
       - MODEL=nomic-embed-text
       - TOKENIZER=nomic-ai/nomic-embed-text-v1.5
-      - CRON_TRIGGER_DATA_PROCESSING=0
-      - CRON_TRIGGER_EMBEDDING=4
-      - GERMAN_FUNDING_DATA=https://foerderdatenbankdump.fra1.cdn.digitaloceanspaces.com/data/parquet_data.zip
+      - CRON_TRIGGER_GERMAN_DATA_PROCESSING=0
+      - CRON_TRIGGER_GERMAN_EMBEDDING=3
+      - CRON_TRIGGER_EU_DATA_PROCESSING=1
+      - CRON_TRIGGER_EU_EMBEDDING=4
+      - GERMAN_COLLECTION_NAME=fundings_german
+      - EU_COLLECTION_NAME=fundings_eu
+      - GERMAN_EXTRACTED_FILE_PATH=data/german_parquet_data_uuid.parquet
+      - EU_EXTRACTED_FILE_PATH=data/eu_parquet_data_uuid.parquet
+      - GERMAN_FUNDING_DATA_URL=https://foerderdatenbankdump.fra1.cdn.digitaloceanspaces.com/data/parquet_data.zip
       - EU_API_URL=https://api.tech.ec.europa.eu/search-api/prod/rest/search
       - EU_API_KEY=SEDIA
       - EU_PAGE_SIZE=50
