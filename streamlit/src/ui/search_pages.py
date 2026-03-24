@@ -70,7 +70,11 @@ class BaseFundingSearchPage(ABC):
         return results
 
     def render(self) -> None:
-        st.title(self.page_title)
+        st.set_page_config(
+            page_title=f"SeFuSe - {self.page_title}",
+            layout="centered",
+            page_icon="favicon.jpg",
+        )
 
         query = st.text_area(
             "Enter your project description:",
