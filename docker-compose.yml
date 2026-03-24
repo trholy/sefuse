@@ -14,8 +14,16 @@ services:
       - "11434:11434"
     volumes:
       - ./ollama/data:/root/.ollama
+    # ------------------------------
+    # Uncomment NVIDIA_VISIBLE_DEVICES, NVIDIA_DRIVER_CAPABILITIES,
+    # OLLAMA_NUM_CTX & gpus to use GPU for embedding processing.
+    # ------------------------------
     environment:
       - MODEL=nomic-embed-text
+      # - NVIDIA_VISIBLE_DEVICES=all
+      # - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      # - OLLAMA_NUM_CTX=2048
+    # gpus: all
 
   fastapi:
     build: ./fastapi
