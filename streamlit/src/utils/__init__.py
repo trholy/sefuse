@@ -5,7 +5,7 @@ from .utils import (
     apply_filters,
     aggregate_chunks,
     search_projects,
-    render_project_result,
+    render_german_project_result,
     render_eu_project_result,
 )
 
@@ -16,6 +16,6 @@ __all__ = [
     "apply_filters",
     "aggregate_chunks",
     "search_projects",
-    "render_project_result",
+    "render_german_project_result",
     "render_eu_project_result",
 ]
