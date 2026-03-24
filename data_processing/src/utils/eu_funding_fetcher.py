@@ -9,7 +9,7 @@ import requests
 EU_STATUS_FORTHCOMING = "31094501"
 EU_STATUS_OPEN = "31094502"
 EU_STATUS_CLOSED = "31094503"
-EU_ALLOWED_STATUS_CODES = {EU_STATUS_FORTHCOMING, EU_STATUS_OPEN}
+EU_ALLOWED_STATUS_CODES = {EU_STATUS_FORTHCOMING, EU_STATUS_OPEN, EU_STATUS_CLOSED}
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +110,7 @@ class EuFundingFetcher:
                             "status": [
                                 EU_STATUS_FORTHCOMING,
                                 EU_STATUS_OPEN,
+                                EU_STATUS_CLOSED,
                             ]
                         }
                     },
