@@ -12,4 +12,8 @@ class GermanFundingProcessor:
 
     @staticmethod
     def transform(df: pl.DataFrame) -> pl.DataFrame:
+        df = df.rename({
+            "on_website_from": "date_1",
+            "last_updated": "date_2"
+        })
         return df

@@ -145,8 +145,8 @@ def render_german_project_result(result: Dict) -> None:
     )
 
     try:
-        on_website_from = datetime.fromisoformat(result.get("on_website_from"))
-        last_updated = datetime.fromisoformat(result.get("last_updated"))
+        on_website_from = datetime.fromisoformat(result.get("date_1"))
+        last_updated = datetime.fromisoformat(result.get("date_2"))
         st.write(
             "**On the website since:**",
             on_website_from.strftime("%d %b %Y, %H:%M")
@@ -190,8 +190,8 @@ def render_eu_project_result(result: Dict) -> None:
     )
     st.write("**Description:**", result.get("project_full_description", "N/A"))
 
-    start_date = _parse_datetime(result.get("start_date"))
-    deadline = _parse_datetime(result.get("deadline"))
+    start_date = _parse_datetime(result.get("date_1"))
+    deadline = _parse_datetime(result.get("date_2"))
 
     if start_date is not None:
         st.write(
