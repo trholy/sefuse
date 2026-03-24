@@ -9,7 +9,7 @@ from utils import (
     apply_filters,
     read_extracted_filter_options,
     render_eu_project_result,
-    render_project_result,
+    render_german_project_result,
     search_projects,
 )
 
@@ -178,7 +178,7 @@ class GermanFundingSearchPage(BaseFundingSearchPage):
         return apply_filters(results, context["filters"])
 
     def render_result(self, result: dict[str, Any]) -> None:
-        render_project_result(result)
+        render_german_project_result(result)
 
 
 class EuFundingSearchPage(BaseFundingSearchPage):
