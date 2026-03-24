@@ -120,13 +120,6 @@ class EuFundingProcessor:
         return hashlib.md5(uuid_source.encode("utf-8")).hexdigest()
 
     @staticmethod
-    def _is_allowed_deadline(deadline: datetime | None) -> bool:
-        if deadline is None:
-            return False
-
-        return deadline.date() >= date.today()
-
-    @staticmethod
     def _is_allowed_status(status_code: str | None) -> bool:
         return status_code in EU_ALLOWED_STATUS_CODES
 
@@ -140,8 +133,6 @@ class EuFundingProcessor:
         status_code: str | None,
     ) -> bool:
         if not self._is_allowed_status(status_code):
-            return False
-        if not self._is_allowed_deadline(deadline):
             return False
         if len(cleaned_description_html.strip()) < MIN_DESCRIPTION_LENGTH:
             return False
