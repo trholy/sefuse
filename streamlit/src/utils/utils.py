@@ -111,6 +111,7 @@ def search_projects(
         model: str,
         query: str,
         search_limit: int,
+        semantic_weight: float,
         endpoint: str,
         timeout: int = 30
 ) -> List[Dict]:
@@ -120,7 +121,8 @@ def search_projects(
         json={
             "model": model,
             "messages": [{"role": "user", "content": query}],
-            "limit": search_limit
+            "limit": search_limit,
+            "semantic_weight": semantic_weight,
         },
         timeout=timeout
     )

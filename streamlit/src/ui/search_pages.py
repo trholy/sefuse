@@ -55,7 +55,7 @@ class BaseFundingSearchPage(ABC):
         return "No projects found."
 
     @abstractmethod
-    def render_sidebar(self) -> tuple[int, dict[str, Any]]:
+    def render_sidebar(self) -> tuple[int, int, dict[str, Any]]:
         pass
 
     @abstractmethod
@@ -83,7 +83,7 @@ class BaseFundingSearchPage(ABC):
             placeholder="Start typing...",
             key=self.query_key,
         )
-        search_limit, context = self.render_sidebar()
+        semantic_weight, search_limit, context = self.render_sidebar()
 
         if st.button("Search", key=self.search_button_key) and query:
             try:
@@ -92,6 +92,7 @@ class BaseFundingSearchPage(ABC):
                     model=self.model,
                     query=query,
                     search_limit=search_limit,
+                    semantic_weight=semantic_weight,
                     endpoint=self.search_endpoint,
                 )
                 results = aggregate_chunks(matches)
@@ -128,7 +129,7 @@ class GermanFundingSearchPage(BaseFundingSearchPage):
     def no_results_message(self) -> str:
         return "No projects match your selected filters."
 
-    def render_sidebar(self) -> tuple[int, dict[str, Any]]:
+    def render_sidebar(self) -> tuple[int, int, dict[str, Any]]:
         location_options = read_extracted_filter_options("data/german_funding_location.txt")
         funding_type_options = read_extracted_filter_options("data/german_funding_type.txt")
         eligible_options = read_extracted_filter_options("data/german_eligible_applicants.txt")
@@ -163,6 +164,16 @@ class GermanFundingSearchPage(BaseFundingSearchPage):
             step=5,
             key=self.search_limit_key,
         )
+        semantic_weight = st.sidebar.slider(
+            "Semantic vs Keyword Weight",
+            min_value=0.0,
+            max_value=1.0,
+            value=0.7,
+            step=0.05,
+            key=f"{self.search_button_key}_semantic_weight",
+            help="0 = pure keyword search, 1 = pure semantic search.",
+        )
+
         drop_na = st.sidebar.checkbox("Drop N/A", value=True, key="federal_drop_na")
 
         filters = {
@@ -172,7 +183,7 @@ class GermanFundingSearchPage(BaseFundingSearchPage):
             "funding_area": selected_funding_area,
             "drop_na": drop_na,
         }
-        return int(search_limit), {"filters": filters}
+        return int(semantic_weight), int(search_limit), {"filters": filters}
 
     def process_results(
         self,
@@ -202,7 +213,7 @@ class EuFundingSearchPage(BaseFundingSearchPage):
     def query_key(self) -> str:
         return "eu_query"
 
-    def render_sidebar(self) -> tuple[int, dict[str, Any]]:
+    def render_sidebar(self) -> tuple[int, int, dict[str, Any]]:
         search_limit = st.sidebar.number_input(
             "Search limit",
             min_value=5,
@@ -211,7 +222,17 @@ class EuFundingSearchPage(BaseFundingSearchPage):
             step=5,
             key=self.search_limit_key,
         )
-        return int(search_limit), {}
+        semantic_weight = st.sidebar.slider(
+            "Semantic vs Keyword Weight",
+            min_value=0.0,
+            max_value=1.0,
+            value=0.7,
+            step=0.05,
+            key=f"{self.search_button_key}_semantic_weight",
+            help="0 = pure keyword search, 1 = pure semantic search.",
+        )
+
+        return int(semantic_weight), int(search_limit), {}
 
     def render_result(self, result: dict[str, Any]) -> None:
         render_eu_project_result(result)
