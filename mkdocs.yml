@@ -5,22 +5,31 @@ theme:
 nav:
   - Home: README.md
   - Data Processing Module:
+      - EU Funding Main: data_processing/eu_funding_main.md
+      - German Funding Main: data_processing/german_funding_main.md
       - Config: data_processing/config/config.md
       - Processing:
           - Cleaner: data_processing/processing/cleaner.md
+          - Common Data Pipeline: data_processing/processing/common_data_pipeline.md
+          - EU Funding Processor: data_processing/processing/eu_funding_processor.md
+          - German Funding Processor: data_processing/processing/german_funding_processor.md
           - UUID Generator: data_processing/processing/uuid_generator.md
           - Value Extractor: data_processing/processing/value_extractor.md
       - Utils:
-          - Downloading: data_processing/utils/downloading.md
+          - EU Funding Fetcher: data_processing/utils/eu_funding_fetcher.md
           - Extractor: data_processing/utils/extractor.md
-      - Main Workflow: data_processing/main.md
+          - German Funding Fetcher: data_processing/utils/german_funding_fetcher.md
   - FastAPI Module:
+      - Main App: fastapi/main.md
       - FastAPI Utils: fastapi/utils/fastapi_utils.md
       - Qdrant Utils: fastapi/utils/qdrant_utils.md
-      - Main App: fastapi/main.md
   - Streamlit Module:
+      - Pages:
+          - Federal Funding Database: streamlit/pages/1_Federal_Funding_Database.md
+          - EU Funding Programs: streamlit/pages/2_EU_Funding_Programs.md
+      - UI:
+          - Search Pages: streamlit/ui/search_pages.md
       - Utils: streamlit/utils/utils.md
-      - Main Application: streamlit/app.md
 
 markdown_extensions:
   - attr_list
