@@ -1,6 +1,6 @@
 # Semantic Funding Search (SeFuSe)
 
-**Semantic search for funding programs in the Federal Funding Database (Förderdatenbank des Bundes).**
+**Semantic search for funding programs in the [Federal Funding Database](https://www.foerderdatenbank.de/FDB/DE/Home/home.html) (Förderdatenbank des Bundes) and the [Funding & Tenders Portal](https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/support/apis) of the European Union.**
 
 ---
 
@@ -8,17 +8,11 @@
 
 [Read the Docs.](https://to82lod.gitpages.uni-jena.de/sefuse/)
 
-**SeFuSe** is a tool for **semantic search of funding programs** in the Federal Funding Database.
+**SeFuSe** is a tool for **semantic search of funding programs** in Funding Databases.
 
 The idea: users enter their **project description** into a web interface and automatically receive **matching funding programs**, including a short description and a direct link to the funding database.
 
 A short demo is available here: [▶ YouTube Video](https://youtu.be/wau3Kw_P8QQ)
-
----
-
-Here’s a cleaner, more polished version with clearer flow and tone:
-
----
 
 ## Quick Start
 
