@@ -105,9 +105,15 @@ async def _search_collection(
     query = body["messages"][0]["content"]
     model = body["model"]
     limit = body["limit"]
+    semantic_weight = body["semantic_weight"]
 
     query_vector = await _embed_query(query, model)
-    results = qdrant_manager.search(query_vector, limit)
+    results = qdrant_manager.search_hybrid(
+        query_vector=query_vector,
+        query_text=query,
+        limit=limit,
+        semantic_weight=semantic_weight,
+    )
 
     return {"matches": _aggregate_results(results)}
 
