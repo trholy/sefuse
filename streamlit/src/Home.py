@@ -19,7 +19,7 @@ st.write(description_text)
 
 st.space(size="small")
 info_text = (
-    "**Development Background:** This tool was developed in response to an urgent need and, following the positive feedback it received, is now being advanced at the Center for Applied Artificial Intelligence (ZAKI) at Ernst Abbe University of Applied Sciences Jena. The aim of this initiative is to simplify and streamline the search for suitable funding programs for interested users, such as staff in transfer centers and researchers.\n\n"
+    "**Development Background:** This tool was developed in response to an urgent need and is now being improved based on community feedback. The aim of this initiative is to simplify and streamline the search for suitable funding programs for interested users, such as staff in transfer centers and researchers.\n\n"
     "**Data Processing:** When the tool is operated on local infrastructure, no data is stored long-term. No data leaves the local system, and there is no access to external APIs or any other form of external data transfer.\n\n "
 )
 st.write(info_text)
@@ -28,7 +28,6 @@ st.space(size="large")
 about_text = (
     "Source code available on [GitHub](https://github.com/trholy/sefuse)."
     " Read the [Docs](https://to82lod.gitpages.uni-jena.de/sefuse/)."
-    " Licensed under [MIT](https://github.com/trholy/sefuse/blob/main/LICENSE)."
-    " Developed by [Thomas R. Holy](https://thomas-robert-holy.de/)."
+    " Licensed under [BSD-3-Clause](https://github.com/trholy/sefuse/blob/main/LICENSE)."
 )
 st.write(about_text)
