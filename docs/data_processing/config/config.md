@@ -1,25 +1,45 @@
-# Data Configuration Module
+# `data_processing.config.config`
 
-Configuration class for managing data paths and URLs used throughout the data processing pipeline.
+Defines immutable configuration objects and environment-backed defaults for the data-processing pipelines.
 
-## DataConfig
+## Module Constants
 
-Data configuration class that defines all necessary file paths and URLs for the data processing workflow.
+- `GERMAN_FUNDING_DATA_URL`: source ZIP URL for German funding data.
+- `EU_API_URL`: EU search API endpoint.
+- `EU_API_KEY`: API key used for EU search requests.
+- `EU_PAGE_SIZE`: number of records requested per EU API page.
+- `EU_MAX_PAGES`: maximum page count fetched from the EU API.
+- `EU_REQUEST_TIMEOUT_SECONDS`: HTTP timeout for EU requests.
+- `EU_PAGE_DELAY_SECONDS`: delay between EU page requests.
 
-### Constructor Parameters
+## Data Classes
 
-- `data_dir` (Path, optional): Base directory for all data files. Default is `"data"`.
-- `zip_url` (str, optional): URL for downloading the compressed parquet data.
-- `zip_path` (Path, optional): Path to the downloaded zip file.
-- `raw_parquet` (Path, optional): Path to the raw parquet file after extraction.
-- `cleaned_parquet` (Path, optional): Path to the cleaned parquet file. 
-- `uuid_parquet` (Path, optional): Path to the parquet file with UUIDs added.
+### `GermanFundingConfig`
 
-### Default Values
+Immutable configuration for the German pipeline.
 
-- `data_dir`: `"data"`
-- `zip_url`: `"https://foerderdatenbankdump.fra1.cdn.digitaloceanspaces.com/data/parquet_data.zip"`
-- `zip_path`: `"data/parquet_data.zip"`
-- `raw_parquet`: `"data/parquet_data.parquet"`
-- `cleaned_parquet`: `"data/parquet_data_cleaned.parquet"`
-- `uuid_parquet`: `"data/parquet_data_uuid.parquet"`
+Important fields:
+
+- `data_dir`: base directory for generated data artifacts.
+- `zip_url`: remote source archive.
+- `zip_path`: local ZIP download target.
+- `raw_parquet`: extracted parquet file path.
+- `cleaned_parquet`: cleaned output path.
+- `uuid_parquet`: UUID-enriched output path.
+
+### `EuFundingConfig`
+
+Immutable configuration for the EU pipeline.
+
+Important fields:
+
+- `data_dir`: base directory for generated artifacts.
+- `api_url`: EU API endpoint.
+- `api_key`: API credential value.
+- `page_size`: number of items per request page.
+- `max_pages`: maximum number of pages to retrieve.
+- `request_timeout_seconds`: request timeout.
+- `page_delay_seconds`: delay inserted between page fetches.
+- `raw_json`: cached raw API response file.
+- `cleaned_parquet`: cleaned output path.
+- `uuid_parquet`: UUID-enriched output path.

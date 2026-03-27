@@ -1,80 +1,53 @@
-# Streamlit Utils Module
+# `streamlit.utils.utils`
 
-This module provides utility functions for the Streamlit application, including data processing, filtering, and aggregation operations. These utilities help in safely handling data structures, reading configuration files, applying filters to search results, and aggregating chunked data.
+Provides shared helper functions for the Streamlit frontend, including API calls, local filter loading, result aggregation, filtering, and result rendering.
 
----
+## General Helpers
 
-## Functions
+### `safe_join(value, sep=", ", default="N/A")`
 
-### safe_join
+Joins list-like values into a display string and falls back to a default label for empty values.
 
-Safely joins list-like objects or returns a default value for empty inputs.
+### `normalize_list(value)`
 
-#### Parameters
+Converts scalars and iterable values into a list of strings.
 
-- `value` (Union[List[Any], None]): The value to join. Can be a list, tuple, set, or single value.
-- `sep` (str, optional): Separator string used to join elements. Default is `", "`.
-- `default` (str, optional): Default value returned when input is empty or None. Default is `"N/A"`.
+### `read_extracted_filter_options(file_path, retries=10, delay=1)`
 
-#### Returns
+Reads filter values from a text file with retry and exponential backoff when the file is temporarily unavailable.
 
-- `str`: Joined string or default value.
+## Search and Filtering
 
----
+### `apply_filters(matches, filters)`
 
-### normalize_list
+Applies frontend filters to German funding results.
 
-Ensures the input value is converted into a list of strings.
+Supported filters:
 
-#### Parameters
+- `locations`
+- `funding_type`
+- `eligible`
+- `funding_area`
+- `drop_na`
 
-- `value` (Any): Input value that may be a string, list, tuple, set, or other type.
+### `aggregate_chunks(matches)`
 
-#### Returns
+Merges multiple chunk-level results belonging to the same project and keeps the best `matching_score`.
 
-- `List[str]`: A list containing string representations of the input values, excluding None values.
+### `search_projects(fastapi_url, model, query, search_limit, semantic_weight, endpoint, timeout=30)`
 
----
+Sends a search request to the FastAPI backend and returns the `matches` list from the JSON response.
 
-### read_extracted_filter_options
+## Rendering Helpers
 
-Reads filter options from a text file with retry logic.
+### `render_german_project_result(result)`
 
-#### Parameters
+Renders one German funding result card with title, descriptions, dates, filter metadata, and score.
 
-- `file_path` (str): Path to the file containing filter options, one per line.
-- `retries` (int, optional): Maximum number of retry attempts. Default is `10`.
-- `delay` (float, optional): Initial delay between retries in seconds. Default is `1`.
+### `_parse_datetime(value)`
 
-#### Returns
+Parses a datetime-like value into a Python `datetime` object when possible.
 
-- `List[str]`: List of stripped non-empty lines from the file.
+### `render_eu_project_result(result)`
 
----
-
-### apply_filters
-
-Filters API results based on selected criteria from the sidebar.
-
-#### Parameters
-
-- `matches` (List[Dict]): List of dictionaries representing search results.
-- `filters` (Dict[str, List[str]]): Dictionary mapping filter categories to selected values.
-
-#### Returns
-
-- `List[Dict]`: Filtered list of results matching all active filters.
-
----
-
-### aggregate_chunks
-
-Aggregates multiple chunk results per project into a single entry.
-
-#### Parameters
-
-- `matches` (List[Dict]): List of dictionaries representing chunked search results.
-
-#### Returns
-
-- `List[Dict]`: Aggregated list where each project appears once with maximum matching score.
+Renders one EU funding result card with description, opening date, deadline, and score.
