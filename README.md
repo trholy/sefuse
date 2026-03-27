@@ -138,9 +138,10 @@ fastapi:
   environment:
     - MODEL=nomic-embed-text
     - TOKENIZER=nomic-ai/nomic-embed-text-v1.5
-    - CRON_TRIGGER_DATA_PROCESSING=0
-    - CRON_TRIGGER_EMBEDDING=4
-    - DOWNLOAD_FILE=https://...
+    - CRON_TRIGGER_GERMAN_DATA_PROCESSING=0
+    - CRON_TRIGGER_GERMAN_EMBEDDING=3
+    - CRON_TRIGGER_EU_DATA_PROCESSING=1
+    - CRON_TRIGGER_EU_EMBEDDING=4
     - OLLAMA_URL=http://ollama:11434
     - VECTOR_DB_HOST=qdrant
     - QDRANT_PORT=6333
@@ -156,22 +157,25 @@ FastAPI is the **brain of the system**. It:
 
 #### Environment variables
 
-| Variable                       | Meaning                                              |
-| ------------------------------ | ---------------------------------------------------- |
-| `MODEL`                        | Embedding model name (must match Ollama + Streamlit) |
-| `TOKENIZER`                    | HuggingFace tokenizer used for chunking text         |
-| `CRON_TRIGGER_DATA_PROCESSING` | Hour (0–23) when funding data is refreshed           |
-| `CRON_TRIGGER_EMBEDDING`       | Hour (0–23) when new embeddings are generated        |
-| `DOWNLOAD_FILE`                | URL of the funding dataset (Parquet ZIP)             |
-| `OLLAMA_URL`                   | Internal Ollama API endpoint                         |
-| `VECTOR_DB_HOST`               | Qdrant hostname inside Docker                        |
-| `QDRANT_PORT`                  | Qdrant service port                                  |
+| Variable                              | Meaning                                              |
+|---------------------------------------|------------------------------------------------------|
+| `MODEL`                               | Embedding model name (must match Ollama + Streamlit) |
+| `TOKENIZER`                           | HuggingFace tokenizer used for chunking text         |
+| `CRON_TRIGGER_GERMAN_DATA_PROCESSING` | Hour (0–23) when German funding data is refreshed    |
+| `CRON_TRIGGER_GERMAN_EMBEDDING`       | Hour (0–23) when German embeddings are refreshed     |
+| `CRON_TRIGGER_EU_DATA_PROCESSING`     | Hour (0–23) when EU funding data is refreshed        |
+| `CRON_TRIGGER_EU_EMBEDDING`           | Hour (0–23) when EU embeddings are refreshed         |
+| `OLLAMA_URL`                          | Internal Ollama API endpoint                         |
+| `VECTOR_DB_HOST`                      | Qdrant hostname inside Docker                        |
+| `QDRANT_PORT`                         | Qdrant service port                                  |
 
 Example:
 
 ```
-CRON_TRIGGER_DATA_PROCESSING=0   → run at midnight
-CRON_TRIGGER_EMBEDDING=4        → run at 04:00 AM
+CRON_TRIGGER_GERMAN_DATA_PROCESSING=0  → German data refresh at midnight
+CRON_TRIGGER_GERMAN_EMBEDDING=3        → German embeddings at 03:00
+CRON_TRIGGER_EU_DATA_PROCESSING=1      → EU data refresh at 01:00
+CRON_TRIGGER_EU_EMBEDDING=4            → EU embeddings at 04:00
 ```
 
 ---
@@ -250,9 +254,10 @@ This repository is with clear separation between data storage, data processing, 
   * `src/` – Application source code following a clean `src` layout.
 
     * `config/` – Centralized configuration handling.
-    * `processing/` – Core data transformation logic (cleaning, UUID generation, value extraction).
-    * `utils/` – Helper utilities for downloading and extracting data.
-    * `main.py` – Entry point for running the data processing workflow.
+    * `processing/` – Core data transformation logic for German and EU funding data.
+    * `utils/` – Helper utilities for fetching, downloading, and extracting source data.
+    * `eu_funding_main.py` – Entry point for the EU funding workflow.
+    * `german_funding_main.py` – Entry point for the German funding workflow.
   * `requirements.txt` – Python dependencies for the data processing service.
 
 * **fastapi/**
@@ -270,7 +275,9 @@ This repository is with clear separation between data storage, data processing, 
 
   * `src/` – Streamlit application code.
 
-    * `app.py` – Main dashboard entry point.
+    * `Home.py` – Main landing page.
+    * `pages/` – Streamlit page entry points for German and EU search.
+    * `ui/` – Reusable page classes and rendering logic.
     * `utils/` – UI and data access helpers.
   * `requirements.txt` – Frontend dependencies.
   * `Dockerfile` – Container definition for the Streamlit app.
@@ -282,7 +289,7 @@ This repository is with clear separation between data storage, data processing, 
   * `data/` – Persistent model data.
 
 * **docs/**
-  Project documentation built with MkDocs, structured to mirror the codebase.
+  Project documentation built with MkDocs, structured to mirror the codebase modules.
 
 ```
 ./
@@ -305,28 +312,36 @@ This repository is with clear separation between data storage, data processing, 
 │       ├── config
 │       │   ├── __init__.py
 │       │   └── config.py
-│       ├── main.py
+│       ├── eu_funding_main.py
+│       ├── german_funding_main.py
 │       ├── processing
 │       │   ├── __init__.py
 │       │   ├── cleaner.py
+│       │   ├── common_data_pipeline.py
+│       │   ├── eu_funding_processor.py
+│       │   ├── german_funding_processor.py
 │       │   ├── uuid_generator.py
 │       │   └── value_extractor.py
 │       └── utils
 │           ├── __init__.py
-│           ├── downloader.py
+│           ├── eu_funding_fetcher.py
 │           └── extractor.py
 ├── docker-compose.yml
 ├── docs
 │   ├── data_processing
 │   │   ├── config
 │   │   │   └── config.md
-│   │   ├── main.md
+│   │   ├── eu_funding_main.md
+│   │   ├── german_funding_main.md
 │   │   ├── processing
 │   │   │   ├── cleaner.md
+│   │   │   ├── common_data_pipeline.md
+│   │   │   ├── eu_funding_processor.md
+│   │   │   ├── german_funding_processor.md
 │   │   │   ├── uuid_generator.md
 │   │   │   └── value_extractor.md
 │   │   └── utils
-│   │       ├── downloading.md
+│   │       ├── eu_funding_fetcher.md
 │   │       └── extractor.md
 │   ├── fastapi
 │   │   ├── main.md
@@ -334,7 +349,12 @@ This repository is with clear separation between data storage, data processing, 
 │   │       ├── fastapi_utils.md
 │   │       └── qdrant_utils.md
 │   └── streamlit
-│       ├── app.md
+│       ├── Home.md
+│       ├── pages
+│       │   ├── 1_Federal_Funding_Database.md
+│       │   └── 2_EU_Funding_Programs.md
+│       ├── ui
+│       │   └── search_pages.md
 │       └── utils
 │           └── utils.md
 ├── fastapi
@@ -360,7 +380,13 @@ This repository is with clear separation between data storage, data processing, 
     │   └── .gitkeep
     ├── requirements.txt
     └── src
-        ├── app.py
+        ├── Home.py
+        ├── pages
+        │   ├── 1_Federal_Funding_Database.py
+        │   └── 2_EU_Funding_Programs.py
+        ├── ui
+        │   ├── __init__.py
+        │   └── search_pages.py
         └── utils
             ├── __init__.py
             └── utils.py
