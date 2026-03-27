@@ -1,5 +1,5 @@
 import hashlib
-from datetime import date, datetime
+from datetime import datetime
 
 import polars as pl
 
@@ -38,8 +38,8 @@ EU_COMMON_SCHEMA = {
     "checksum": pl.Utf8,
     "license_info": pl.Utf8,
     "previous_update_dates": pl.List(pl.Datetime("us")),
-    "last_updated": pl.Datetime("us"),
-    "on_website_from": pl.Datetime("us"),
+    "date_2": pl.Datetime("us"),
+    "date_1": pl.Datetime("us"),
     "deleted": pl.Boolean,
     "project_short_description": pl.Utf8,
     "project_full_description": pl.Utf8,
@@ -85,9 +85,9 @@ class EuFundingProcessor:
         if raw is None:
             return None
 
-        normalized = raw.replace("Z", "+00:00")
         try:
-            return datetime.fromisoformat(normalized)
+            parsed = datetime.strptime(raw, "%Y-%m-%dT%H:%M:%S.%f%z")
+            return parsed.replace(tzinfo=None)
         except ValueError:
             return None
 
