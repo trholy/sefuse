@@ -31,7 +31,9 @@ services:
       retries: 10
 
   fastapi:
-    build: ./fastapi
+    build:
+      context: .
+      dockerfile: fastapi/Dockerfile
     container_name: sefuse_fastapi
     ports:
       - "8000:8000"
@@ -53,6 +55,7 @@ services:
       - GERMAN_COLLECTION_NAME=fundings_german
       - EU_COLLECTION_NAME=fundings_eu
       - GERMAN_EXTRACTED_FILE_PATH=data/german_parquet_data_uuid.parquet
+      - GERMAN_TAXONOMY_FILE_PATH=data/taxonomy_german.json
       - EU_EXTRACTED_FILE_PATH=data/eu_parquet_data_uuid.parquet
       - GERMAN_FUNDING_DATA_URL=https://foerderdatenbankdump.fra1.cdn.digitaloceanspaces.com/data/parquet_data.zip
       - EU_API_URL=https://api.tech.ec.europa.eu/search-api/prod/rest/search
@@ -67,7 +70,9 @@ services:
       - QDRANT_PORT=6333
 
   streamlit:
-    build: ./streamlit
+    build:
+      context: .
+      dockerfile: streamlit/Dockerfile
     container_name: sefuse_streamlit
     ports:
       - "8501:8501"
