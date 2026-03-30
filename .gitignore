@@ -3,6 +3,8 @@
 /data/funding_data/*
 !/data/funding_data/.gitkeep
 /data/qdrant/*
+/data/postgres/*
+!/data/postgres/.gitkeep
 !/data/qdrant/.gitkeep
 
 .env
