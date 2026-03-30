@@ -1,37 +1,23 @@
-# UUID Generator Module
+# `data_processing.processing.uuid_generator`
 
-Utility class for generating deterministic UUIDs based on input values. This module ensures consistent, reproducible unique identifiers for data records.
+Generates deterministic UUIDs for dataframe rows based on a stable source column.
 
----
+## Class `UuidGenerator`
 
-## UuidGenerator
+### Constructor
 
-Class for generating UUID5 identifiers based on input values and a fixed namespace.
+- `namespace`: `uuid.UUID` namespace used for UUIDv5 generation.
 
-### Constructor (__init__ method)
+### `add_uuid_column(df, source_column, target_column="uuid")`
 
-Initializes the UUID generator with a fixed namespace.
+Adds a UUID column to a `polars.DataFrame`.
 
-#### Parameters
+#### Behavior
 
-- `namespace` (uuid.UUID): The UUID namespace to use for generating deterministic UUIDs.
+- Reads values from `source_column`.
+- Uses UUIDv5 with the configured namespace to produce deterministic IDs.
+- Stores the generated value in `target_column`, which defaults to `uuid`.
 
-#### Attributes
+#### Returns
 
-- `_namespace` (uuid.UUID): The namespace used for UUID generation
-
-### Methods
-
-#### add_uuid_column
-
-Adds a deterministic UUID column to a Polars DataFrame based on a source column.
-
-##### Parameters
-
-- `df` (pl.DataFrame): Input DataFrame to process.
-- `source_column` (str): Name of the column to use as input for UUID generation.
-- `target_column` (str, optional): Name of the new UUID column to create. Default is `"uuid"`.
-
-##### Returns
-
-- `pl.DataFrame`: DataFrame with the new UUID column added.
+A new `polars.DataFrame` with the UUID column added.

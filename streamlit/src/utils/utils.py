@@ -5,6 +5,7 @@ from datetime import datetime
 
 import requests
 import streamlit as st
+from shared.taxonomy_contract import taxonomy_key_set
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -58,28 +59,30 @@ def apply_filters(
         filters: Dict[str, List[str]]
 ) -> List[Dict]:
     """Filter the API results according to sidebar selections."""
+    selected_location_keys = taxonomy_key_set(filters.get("funding_location") or [])
+    selected_funding_type_keys = taxonomy_key_set(filters.get("funding_type") or [])
+    selected_eligible_keys = taxonomy_key_set(filters.get("eligible_applicants") or [])
+    selected_funding_area_keys = taxonomy_key_set(filters.get("funding_area") or [])
+    drop_na = bool(filters.get("drop_na", False))
+
     filtered = []
     for r in matches:
-        funding_location = normalize_list(r.get("funding_location"))
-        funding_type = normalize_list(r.get("funding_type"))
-        eligible_applicants = normalize_list(r.get("eligible_applicants"))
-        funding_area = normalize_list(r.get("funding_area"))
+        funding_location_keys = taxonomy_key_set(normalize_list(r.get("funding_location_keys")))
+        funding_type_keys = taxonomy_key_set(normalize_list(r.get("funding_type_keys")))
+        eligible_applicants_keys = taxonomy_key_set(normalize_list(r.get("eligible_applicants_keys")))
+        funding_area_keys = taxonomy_key_set(normalize_list(r.get("funding_area_keys")))
         short_description = r.get("project_short_description")
         full_description = r.get("project_full_description")
 
-        if filters["locations"] and not any(
-                loc in funding_location for loc in filters["locations"]):
+        if selected_location_keys and not funding_location_keys.intersection(selected_location_keys):
             continue
-        if filters["funding_type"] and not any(
-                ft in funding_type for ft in filters["funding_type"]):
+        if selected_funding_type_keys and not funding_type_keys.intersection(selected_funding_type_keys):
             continue
-        if filters["eligible"] and not any(
-                el in eligible_applicants for el in filters["eligible"]):
+        if selected_eligible_keys and not eligible_applicants_keys.intersection(selected_eligible_keys):
             continue
-        if filters["funding_area"] and not any(
-                area in funding_area for area in filters["funding_area"]):
+        if selected_funding_area_keys and not funding_area_keys.intersection(selected_funding_area_keys):
             continue
-        if filters["drop_na"] and "N/A" == short_description == full_description:
+        if drop_na and "N/A" == short_description == full_description:
             continue
         filtered.append(r)
     return filtered
@@ -113,22 +116,44 @@ def search_projects(
         search_limit: int,
         semantic_weight: float,
         endpoint: str,
+        filters: Dict[str, List[str]] | None = None,
         timeout: int = 30
 ) -> List[Dict]:
     """Run semantic search request against the backend and return matches."""
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": query}],
+        "limit": search_limit,
+        "semantic_weight": semantic_weight,
+    }
+    if filters:
+        payload["filters"] = filters
+
     response = requests.post(
         f"{fastapi_url}{endpoint}",
-        json={
-            "model": model,
-            "messages": [{"role": "user", "content": query}],
-            "limit": search_limit,
-            "semantic_weight": semantic_weight,
-        },
+        json=payload,
         timeout=timeout
     )
     response.raise_for_status()
     data = response.json()
     return data.get("matches", [])
+
+
+def fetch_german_taxonomy(
+        fastapi_url: str,
+        timeout: int = 30
+) -> Dict[str, Any]:
+    response = requests.get(
+        f"{fastapi_url}/v1/vocab/german",
+        timeout=timeout,
+    )
+    response.raise_for_status()
+    data = response.json()
+    if not isinstance(data, dict):
+        return {"columns": {}}
+    if "columns" not in data or not isinstance(data["columns"], dict):
+        data["columns"] = {}
+    return data
 
 
 def render_german_project_result(result: Dict) -> None:
@@ -207,3 +232,21 @@ def render_eu_project_result(result: Dict) -> None:
         )
 
     st.write(f"**Score:** {result.get('matching_score', 0) * 100:.1f} %")
+
+
+def _friendly_search_error(error: Exception) -> str:
+    """Convert backend/search errors into user-friendly UI text."""
+    if isinstance(error, (requests.exceptions.ConnectionError, ConnectionRefusedError)):
+        return (
+            "Search service is still starting up."
+            " Data download or embedding may still be in progress. "
+            "Please wait a moment and try again."
+        )
+    if isinstance(error, requests.exceptions.Timeout):
+        return (
+            "The search request is taking longer than expected."
+            " Please try again in a moment."
+        )
+    if isinstance(error, requests.exceptions.HTTPError):
+        return "Search service returned an unexpected response. Please try again."
+    return "Something went wrong while searching. Please try again."

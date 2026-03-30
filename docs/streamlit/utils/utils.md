@@ -1,80 +1,56 @@
-# Streamlit Utils Module
+# `streamlit.utils.utils`
 
-This module provides utility functions for the Streamlit application, including data processing, filtering, and aggregation operations. These utilities help in safely handling data structures, reading configuration files, applying filters to search results, and aggregating chunked data.
+Provides shared helper functions for the Streamlit frontend, including API calls, taxonomy-aware filtering, result aggregation, and result rendering.
 
----
+## General Helpers
 
-## Functions
+### `safe_join(value, sep=", ", default="N/A")`
 
-### safe_join
+Joins list-like values into a display string and falls back to a default label for empty values.
 
-Safely joins list-like objects or returns a default value for empty inputs.
+### `normalize_list(value)`
 
-#### Parameters
+Converts scalars and iterable values into a list of strings.
 
-- `value` (Union[List[Any], None]): The value to join. Can be a list, tuple, set, or single value.
-- `sep` (str, optional): Separator string used to join elements. Default is `", "`.
-- `default` (str, optional): Default value returned when input is empty or None. Default is `"N/A"`.
+### `read_extracted_filter_options(file_path, retries=10, delay=1)`
 
-#### Returns
+Reads values from a text file with retry/backoff. This helper remains available for local file use-cases.
 
-- `str`: Joined string or default value.
+## Taxonomy and Search
 
----
+### `fetch_german_taxonomy(fastapi_url, timeout=30)`
 
-### normalize_list
+Fetches `GET /v1/vocab/german` and returns a safe dictionary structure containing taxonomy columns.
 
-Ensures the input value is converted into a list of strings.
+### `search_projects(fastapi_url, model, query, search_limit, endpoint, filters=None, timeout=30)`
 
-#### Parameters
+Sends a search request to FastAPI and returns the `matches` list from the JSON response.
 
-- `value` (Any): Input value that may be a string, list, tuple, set, or other type.
+### `apply_filters(matches, filters)`
 
-#### Returns
+Applies key-based filters on German results using `*_keys` fields:
 
-- `List[str]`: A list containing string representations of the input values, excluding None values.
+- `funding_location_keys`
+- `funding_type_keys`
+- `eligible_applicants_keys`
+- `funding_area_keys`
 
----
+Also supports the `drop_na` toggle to hide entries where both short and full descriptions are `"N/A"`.
 
-### read_extracted_filter_options
+### `aggregate_chunks(matches)`
 
-Reads filter options from a text file with retry logic.
+Merges chunk-level matches by project ID and keeps the maximum `matching_score`.
 
-#### Parameters
+## Rendering Helpers
 
-- `file_path` (str): Path to the file containing filter options, one per line.
-- `retries` (int, optional): Maximum number of retry attempts. Default is `10`.
-- `delay` (float, optional): Initial delay between retries in seconds. Default is `1`.
+### `render_german_project_result(result)`
 
-#### Returns
+Renders one German funding result card with title, descriptions, dates, category metadata, and score.
 
-- `List[str]`: List of stripped non-empty lines from the file.
+### `_parse_datetime(value)`
 
----
+Parses a datetime-like value into a Python `datetime` object when possible.
 
-### apply_filters
+### `render_eu_project_result(result)`
 
-Filters API results based on selected criteria from the sidebar.
-
-#### Parameters
-
-- `matches` (List[Dict]): List of dictionaries representing search results.
-- `filters` (Dict[str, List[str]]): Dictionary mapping filter categories to selected values.
-
-#### Returns
-
-- `List[Dict]`: Filtered list of results matching all active filters.
-
----
-
-### aggregate_chunks
-
-Aggregates multiple chunk results per project into a single entry.
-
-#### Parameters
-
-- `matches` (List[Dict]): List of dictionaries representing chunked search results.
-
-#### Returns
-
-- `List[Dict]`: Aggregated list where each project appears once with maximum matching score.
+Renders one EU funding result card with description, opening date, deadline, and score.

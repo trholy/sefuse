@@ -45,6 +45,8 @@ def run_german_funding_pipeline() -> None:
         source_column="id_hash",
         export_file_prefix="german_",
         data_dir=config.data_dir,
+        taxonomy_path=config.taxonomy_json,
+        taxonomy_domain="german",
     )
 
 if __name__ == "__main__":

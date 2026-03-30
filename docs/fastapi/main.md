@@ -1,118 +1,66 @@
-# FastAPI Main Module
+# `fastapi.main`
 
-Main FastAPI application for the semantic funding search system. This module provides the REST API endpoints and orchestrates the complete search pipeline including data processing, embedding, and vector search.
+Defines the FastAPI application, startup jobs, scheduled refresh workflows, taxonomy endpoint, and funding search endpoints.
 
----
+## Main Responsibilities
 
-## Constants
+- Configures runtime settings for embeddings, collections, parquet paths, and taxonomy file path.
+- Starts German and EU data-processing jobs on application startup.
+- Starts embedding refresh pipelines on startup and cron schedule.
+- Exposes REST endpoints for German/EU search and German taxonomy retrieval.
+- Aggregates chunk-level Qdrant matches into project-level responses.
+- Applies key-based taxonomy filters on search results.
 
-### OLLAMA_URL
-Default URL for Ollama service endpoint. Defaults to `"http://ollama:11434"`.
+## Key Functions
 
-### EMBED_MODEL
-Environment variable for specifying the embedding model to use. Retrieved from `MODEL` environment variable.
+### `_normalize_list_field(value)`
 
-### TOKENIZER
-Environment variable for specifying the tokenizer to use. Retrieved from `TOKENIZER` environment variable.
+Ensures a payload field is always represented as a list.
 
-### CRON_TRIGGER_DATA_PROCESSING
+### `_normalize_filter_keys(filters)`
 
-Environment variable for specifying the time to run the data processing pipline. Retrieved from `CRON_TRIGGER_DATA_PROCESSING` environment variable.
+Normalizes incoming filter payload to taxonomy key sets for:
 
-### CRON_TRIGGER_EMBEDDING
+- `funding_type`
+- `funding_area`
+- `funding_location`
+- `eligible_applicants`
 
-Environment variable for specifying the time to run the embedding pipline. Retrieved from `CRON_TRIGGER_EMBEDDING` environment variable.
+### `_result_matches_filters(result, filter_keys)`
 
-### EXTRACTED_FILE_PATH
-Path to the processed funding data file containing UUIDs. Default is `"data/parquet_data_uuid.parquet"`.
+Checks whether an aggregated result matches selected taxonomy key filters using `*_keys` payload fields.
 
----
+### `_aggregate_results(results)`
 
-## Application Lifecycle
+Combines chunk-level vector search results by project ID and exposes both display values and `*_keys` values.
 
-### lifespan
+### `_search_collection(request, qdrant_manager)`
 
-Async context manager that handles application startup and shutdown procedures.
+Reads search request payload, embeds query, runs vector search, aggregates results, and applies optional taxonomy filters.
 
-#### Startup Process
+### `_load_taxonomy(path)`
 
-1. **Initial Data Processing**: Runs data processing pipeline to download and prepare funding data
-2. **Initial Embedding Pipeline**: Runs embedding pipeline to create vector representations
-3. **Periodic Job Scheduling**: Sets up scheduled jobs for:
-   - Data processing every day at specified hour (`CRON_TRIGGER_DATA_PROCESSING` environment variable)
-   - Embedding pipeline execution very day at specified hour (`CRON_TRIGGER_EMBEDDING` environment variable)
+Loads taxonomy JSON from disk and returns a safe empty taxonomy structure when unavailable.
 
-#### Shutdown Process
+### `lifespan(app)`
 
-- Stops the scheduler and cleans up resources
+FastAPI lifespan handler that:
 
----
-
-## Services Initialization
-
-### QdrantManager
-Manages connection to and operations with the Qdrant vector database.
-
-### EmbeddingService
-Handles text embedding generation using Ollama service with token-based chunking.
-
-### Pipeline
-Main pipeline for embedding new data and inserting into Qdrant.
+1. Runs both data pipelines on startup.
+2. Runs both embedding pipelines on startup.
+3. Registers scheduled German and EU processing jobs with `AsyncIOScheduler`.
+4. Starts and cleanly shuts down the scheduler.
 
 ## API Endpoints
 
-### POST /v1/search
+### `POST /v1/search/german`
 
-Performs semantic search on funding projects using vector similarity.
+Searches the German funding collection and supports taxonomy key filters in the request body.
 
-#### Request Body
+### `POST /v1/search/eu`
 
-```json
-{
-  "model": "string",
-  "messages": [
-    {
-      "role": "user",
-      "content": "string"
-    }
-  ],
-  "limit": integer
-}
-```
+Searches the EU funding collection.
 
-#### Parameters
+### `GET /v1/vocab/german`
 
-- `model` (str): Name of the embedding model to use
-- `messages` (List[Dict]): List of messages (only first message used)
-- `limit` (int): Maximum number of search results to return
-
-#### Response
-
-```json
-{
-  "matches": [
-    {
-      "project_id": "string",
-      "project_title": "string",
-      "project_short_description": "string",
-      "project_full_description": "string",
-      "on_website_from": "string",
-      "last_updated": "string",
-      "funding_type": ["string"],
-      "funding_area": ["string"],
-      "funding_location": ["string"],
-      "eligible_applicants": ["string"],
-      "project_website": "string",
-      "matching_score": float
-    }
-  ]
-}
-```
-
-#### Processing Steps
-
-1. **Query Embedding**: Generates embedding vector for user query using Ollama
-2. **Vector Search**: Searches Qdrant for similar projects using cosine similarity
-3. **Result Aggregation**: Groups multiple embeddings per project into single results
-4. **Score Aggregation**: Takes maximum score for relevance ranking
-5. **Response Formatting**: Structures results with consistent metadata format
+Returns the current German taxonomy contract artifact loaded from `taxonomy_german.json`.

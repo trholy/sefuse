@@ -72,6 +72,8 @@ def run_eu_funding_pipeline() -> None:
         export_columns=["funding_area"],
         export_file_prefix="eu_",
         columns_to_drop_before_store=[UUID_SOURCE_COLUMN],
+        taxonomy_path=config.taxonomy_json,
+        taxonomy_domain="eu",
     )
 
 if __name__ == "__main__":

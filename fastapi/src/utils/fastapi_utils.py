@@ -18,6 +18,7 @@ logging.basicConfig(level=logging.INFO)
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
 EMBED_MODEL = os.getenv('MODEL', 'nomic-embed-text')
 TOKENIZER = os.getenv('TOKENIZER', 'nomic-ai/nomic-embed-text-v1.5')
+OLLAMA_EMBED_TIMEOUT_SECONDS = float(os.getenv("OLLAMA_EMBED_TIMEOUT_SECONDS", "120"))
 
 def download_job():
     try:
@@ -109,7 +110,7 @@ class EmbeddingService:
             resp = await client.post(
                 f"{self.ollama_url}/api/embeddings",
                 json={"model": self.model, "prompt": text},
-                timeout=30
+                timeout=OLLAMA_EMBED_TIMEOUT_SECONDS
             )
             resp.raise_for_status()
             return resp.json().get("embedding")

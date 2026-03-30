@@ -1,25 +1,16 @@
-# Zip Extractor Module
+# `data_processing.utils.extractor`
 
-Utility class for extracting files from ZIP archives. This module handles the extraction of specific files from compressed data packages in the data processing pipeline.
+Contains ZIP archive extraction utilities used by the German funding ingestion flow.
 
----
+## Class `ZipExtractor`
 
-## ZipExtractor
+### `extract_file(zip_path, filename, target_path)`
 
-Class for extracting specific files from ZIP archives to local storage.
+Extracts a specific file from a ZIP archive and writes it to a target path.
 
-### Methods
+#### Behavior
 
-#### extract_file
-
-Extracts a specific file from a ZIP archive and saves it to the target location.
-
-##### Parameters
-
-- `zip_path` (Path): The path to the ZIP archive file.
-- `filename` (str): The name of the file to extract from the archive.
-- `target_path` (Path): The local file path where the extracted content should be saved.
-
-##### Returns
-
-- `None`: This method performs file I/O operations but returns nothing.
+- Raises `FileNotFoundError` if the ZIP archive does not exist.
+- Opens the archive and verifies that `filename` is present.
+- Raises `ValueError` with the available archive contents when the requested file is missing.
+- Writes the extracted file bytes to `target_path`, creating parent directories as needed.
