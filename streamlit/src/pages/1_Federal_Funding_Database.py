@@ -2,7 +2,7 @@ import streamlit as st
 from psycopg2 import OperationalError
 
 from ui import GermanFundingSearchPage
-from utils.auth import (
+from auth.handlers import (
     bootstrap_auth_system,
     render_logout_button,
     require_login,

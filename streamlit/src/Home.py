@@ -1,7 +1,7 @@
 import streamlit as st
 from psycopg2 import OperationalError
 
-from utils.auth import (
+from auth.handlers import (
     bootstrap_auth_system,
     is_authenticated,
     is_auth_enabled,
@@ -16,19 +16,24 @@ st.set_page_config(
 )
 
 
-def render_login_screen() -> None:
-    st.title("SeFuSe Login")
-    st.write("Please sign in with your username and password.")
-
+def _render_login_form() -> None:
     with st.form("login_form"):
         username = st.text_input("Username")
         password = st.text_input("Password", type="password")
         submitted = st.form_submit_button("Login")
 
-    if submitted:
-        if login_user(username, password):
-            st.rerun()
-        st.error("Invalid username or password.")
+    if not submitted:
+        return
+
+    if login_user(username, password):
+        st.rerun()
+    st.error("Invalid username or password.")
+
+
+def render_login_screen() -> None:
+    st.title("SeFuSe Login")
+    st.write("Please sign in with your username and password.")
+    _render_login_form()
 
 
 def render_home_content() -> None:

@@ -1,8 +1,8 @@
 import streamlit as st
 from psycopg2 import OperationalError
 
-from utils.auth import (
-    ROLE_ADMIN,
+from auth.constants import ROLE_ADMIN
+from auth.handlers import (
     bootstrap_auth_system,
     create_user,
     delete_user,
@@ -10,6 +10,7 @@ from utils.auth import (
     list_users,
     render_logout_button,
     require_admin,
+    to_user_message,
     update_password,
 )
 
@@ -33,7 +34,7 @@ def _render_create_user() -> None:
     try:
         create_user(username=username, password=password)
     except Exception as error:
-        st.error(f"Could not create user: {error}")
+        st.error(to_user_message(error))
         return
 
     st.success(f"User `{username}` created.")
@@ -57,7 +58,7 @@ def _render_update_password(usernames: list[str]) -> None:
     try:
         update_password(username=username, new_password=new_password)
     except Exception as error:
-        st.error(f"Could not update password: {error}")
+        st.error(to_user_message(error))
         return
 
     st.success(f"Password updated for `{username}`.")
@@ -85,7 +86,7 @@ def _render_delete_user(deletable_usernames: list[str]) -> None:
     try:
         delete_user(username=username)
     except Exception as error:
-        st.error(f"Could not delete user: {error}")
+        st.error(to_user_message(error))
         return
 
     st.success(f"User `{username}` deleted.")
