@@ -230,3 +230,21 @@ def render_eu_project_result(result: Dict) -> None:
         )
 
     st.write(f"**Score:** {result.get('matching_score', 0) * 100:.1f} %")
+
+
+def _friendly_search_error(error: Exception) -> str:
+    """Convert backend/search errors into user-friendly UI text."""
+    if isinstance(error, (requests.exceptions.ConnectionError, ConnectionRefusedError)):
+        return (
+            "Search service is still starting up."
+            " Data download or embedding may still be in progress. "
+            "Please wait a moment and try again."
+        )
+    if isinstance(error, requests.exceptions.Timeout):
+        return (
+            "The search request is taking longer than expected."
+            " Please try again in a moment."
+        )
+    if isinstance(error, requests.exceptions.HTTPError):
+        return "Search service returned an unexpected response. Please try again."
+    return "Something went wrong while searching. Please try again."

@@ -12,6 +12,7 @@ from utils import (
     render_eu_project_result,
     render_german_project_result,
     search_projects,
+    _friendly_search_error,
 )
 
 logger = logging.getLogger(__name__)
@@ -108,7 +109,8 @@ class BaseFundingSearchPage(ABC):
                 else:
                     st.warning(self.no_results_message)
             except Exception as error:
-                st.error(f"Error: {error}")
+                logger.exception("Search request failed: %s", error)
+                st.error(_friendly_search_error(error))
 
 
 class GermanFundingSearchPage(BaseFundingSearchPage):

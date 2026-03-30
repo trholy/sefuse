@@ -8,6 +8,7 @@ from .utils import (
     search_projects,
     render_german_project_result,
     render_eu_project_result,
+    _friendly_search_error,
 )
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "search_projects",
     "render_german_project_result",
     "render_eu_project_result",
+    "_friendly_search_error"
 ]
