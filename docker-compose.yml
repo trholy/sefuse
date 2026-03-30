@@ -81,8 +81,6 @@ services:
     depends_on:
       fastapi:
         condition: service_started
-      postgres:
-        condition: service_healthy
     environment:
       - MODEL=nomic-embed-text
       - FASTAPI_URL=http://fastapi:8000
