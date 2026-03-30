@@ -1,6 +1,8 @@
 import os
 import asyncio
+import json
 import logging
+from pathlib import Path
 from typing import Dict, Any
 
 import httpx
@@ -11,6 +13,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from data_processing.german_funding_main import run_german_funding_pipeline
 from data_processing.eu_funding_main import run_eu_funding_pipeline
+from shared.taxonomy_contract import taxonomy_key_set
 from utils import EmbeddingService, Pipeline, QdrantManager
 
 logger = logging.getLogger(__name__)
@@ -35,12 +38,52 @@ EU_EXTRACTED_FILE_PATH = os.getenv(
     "EU_EXTRACTED_FILE_PATH",
     "data/eu_parquet_data_uuid.parquet",
 )
+GERMAN_TAXONOMY_FILE_PATH = os.getenv(
+    "GERMAN_TAXONOMY_FILE_PATH",
+    "data/taxonomy_german.json",
+)
 
 
 def _normalize_list_field(value: Any) -> list[Any]:
+    if value is None:
+        return []
     if isinstance(value, list):
         return value
     return [value]
+
+
+def _normalize_filter_keys(filters: Any) -> dict[str, set[str]]:
+    if not isinstance(filters, dict):
+        return {}
+
+    normalized: dict[str, set[str]] = {}
+    for field in (
+        "funding_type",
+        "funding_area",
+        "funding_location",
+        "eligible_applicants",
+    ):
+        keys = taxonomy_key_set(_normalize_list_field(filters.get(field)))
+        if keys:
+            normalized[field] = keys
+
+    return normalized
+
+
+def _result_matches_filters(
+    result: dict[str, Any],
+    filter_keys: dict[str, set[str]],
+) -> bool:
+    if not filter_keys:
+        return True
+
+    for field, selected_keys in filter_keys.items():
+        row_keys = _normalize_list_field(result.get(f"{field}_keys"))
+        normalized_row_keys = taxonomy_key_set(row_keys)
+        if not normalized_row_keys.intersection(selected_keys):
+            return False
+
+    return True
 
 
 def _aggregate_results(results: list[Any]) -> list[dict[str, Any]]:
@@ -67,14 +110,26 @@ def _aggregate_results(results: list[Any]) -> list[dict[str, Any]]:
                 "funding_type": _normalize_list_field(
                     payload.get("funding_type")
                 ),
+                "funding_type_keys": _normalize_list_field(
+                    payload.get("funding_type_keys")
+                ),
                 "funding_area": _normalize_list_field(
                     payload.get("funding_area")
+                ),
+                "funding_area_keys": _normalize_list_field(
+                    payload.get("funding_area_keys")
                 ),
                 "funding_location": _normalize_list_field(
                     payload.get("funding_location")
                 ),
+                "funding_location_keys": _normalize_list_field(
+                    payload.get("funding_location_keys")
+                ),
                 "eligible_applicants": _normalize_list_field(
                     payload.get("eligible_applicants")
+                ),
+                "eligible_applicants_keys": _normalize_list_field(
+                    payload.get("eligible_applicants_keys")
                 ),
                 "project_website": payload.get("url", ""),
                 "matching_score": result.score,
@@ -117,8 +172,45 @@ async def _search_collection(
 
     query_vector = await _embed_query(query, model)
     results = qdrant_manager.search(query_vector, limit)
+    aggregated = _aggregate_results(results)
 
-    return {"matches": _aggregate_results(results)}
+    filter_keys = _normalize_filter_keys(body.get("filters"))
+    if filter_keys:
+        aggregated = [
+            match
+            for match in aggregated
+            if _result_matches_filters(match, filter_keys)
+        ]
+
+    return {"matches": aggregated}
+
+
+def _load_taxonomy(path: str) -> dict[str, Any]:
+    taxonomy_path = Path(path)
+    if not taxonomy_path.exists():
+        return {
+            "domain": "german",
+            "generated_at_utc": "",
+            "version": "",
+            "hash": "",
+            "columns": {},
+        }
+
+    try:
+        return json.loads(taxonomy_path.read_text(encoding="utf-8"))
+    except Exception as error:
+        logger.warning(
+            "Failed to load taxonomy from %s: %s",
+            taxonomy_path,
+            error,
+        )
+        return {
+            "domain": "german",
+            "generated_at_utc": "",
+            "version": "",
+            "hash": "",
+            "columns": {},
+        }
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -198,6 +290,7 @@ async def lifespan(app: FastAPI):
 
 scheduler = AsyncIOScheduler()
 app = FastAPI(lifespan=lifespan)
+taxonomy_route = app.get if hasattr(app, "get") else app.post
 
 # Initialize services
 embedding_service = EmbeddingService(tokenizer=TOKENIZER)
@@ -224,3 +317,9 @@ async def search_projects(request: Request) -> Dict[str, Any]:
 async def search_eu_projects(request: Request) -> Dict[str, Any]:
     """Search EU funding projects."""
     return await _search_collection(request, eu_qdrant_manager)
+
+
+@taxonomy_route("/v1/vocab/german")
+async def get_german_taxonomy() -> Dict[str, Any]:
+    """Return the current German taxonomy contract artifact."""
+    return _load_taxonomy(GERMAN_TAXONOMY_FILE_PATH)
