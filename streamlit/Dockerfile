@@ -3,6 +3,8 @@ FROM python:3.11-slim
 WORKDIR /app
 
 COPY streamlit/src/Home.py streamlit/requirements.txt streamlit/favicon.jpg /app/
+COPY streamlit/migrations /app/migrations/
+COPY streamlit/src/auth/ /app/auth/
 COPY streamlit/src/utils/ /app/utils/
 COPY streamlit/src/pages/ /app/pages/
 COPY streamlit/src/ui/ /app/ui/
