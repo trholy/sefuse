@@ -38,10 +38,10 @@ services:
     # ------------------------------
     environment:
       - MODEL=nomic-embed-text
-      # - NVIDIA_VISIBLE_DEVICES=all
-      # - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-      # - OLLAMA_NUM_CTX=2048
-    # gpus: all
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - OLLAMA_NUM_CTX=2048
+    gpus: all
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 10s
@@ -99,8 +99,6 @@ services:
     depends_on:
       fastapi:
         condition: service_started
-      postgres:
-        condition: service_healthy
     environment:
       - MODEL=nomic-embed-text
       - FASTAPI_URL=http://fastapi:8000

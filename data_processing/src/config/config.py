@@ -45,3 +45,4 @@ class EuFundingConfig:
     raw_json: Path = data_dir / "eu_open_calls.json"
     cleaned_parquet: Path = data_dir / "eu_parquet_data_cleaned.parquet"
     uuid_parquet: Path = data_dir / "eu_parquet_data_uuid.parquet"
+    taxonomy_json: Path = data_dir / "taxonomy_eu.json"

@@ -1,6 +1,6 @@
 # `streamlit.ui.search_pages`
 
-Defines the reusable Streamlit page classes for German and EU funding search.
+Defines reusable Streamlit page classes for German and EU funding search.
 
 ## Class `BaseFundingSearchPage`
 
@@ -25,24 +25,24 @@ Abstract base class for funding search pages.
 
 ### Abstract Methods
 
-- `render_sidebar()`: returns semantic weight, search limit, and extra context.
+- `render_sidebar()`: returns search limit and additional context.
 - `render_result(result)`: renders one result card.
 
 ### Optional Hook
 
-- `process_results(results, context)`: allows subclasses to post-process or filter results before rendering.
+- `process_results(results, context)`: allows subclasses to post-process results before rendering.
 
 ### `render()`
 
-Builds the common page flow:
+Common page flow:
 
-1. Configure the page.
-2. Render the query text area.
-3. Render sidebar controls through the subclass hook.
-4. Execute backend search when the user clicks the search button.
-5. Aggregate chunked backend results.
-6. Apply optional result post-processing.
-7. Render success, warning, or error feedback.
+1. Configure page metadata.
+2. Render query input.
+3. Render sidebar controls through subclass hook.
+4. Execute backend search on button click.
+5. Aggregate chunk-level matches.
+6. Apply optional post-processing.
+7. Render success/warning/error feedback.
 
 ## Class `GermanFundingSearchPage`
 
@@ -51,10 +51,11 @@ Implements the German federal funding UI.
 ### Key Behavior
 
 - Uses `/v1/search/german`.
-- Loads filter options from text files in the `data` directory.
-- Renders sidebar controls for location, funding type, eligible applicants, funding area, search limit, semantic weight, and `Drop N/A`.
-- Applies result filtering through `apply_filters`.
-- Renders cards with `render_german_project_result`.
+- Fetches taxonomy from FastAPI (`/v1/vocab/german`) and builds filter widgets from taxonomy keys.
+- Displays canonical labels in multiselect controls while storing stable taxonomy keys.
+- Sends selected taxonomy keys to backend search as `filters`.
+- Applies key-based result filtering through `apply_filters`.
+- Warns in sidebar when taxonomy loading fails.
 
 ## Class `EuFundingSearchPage`
 
@@ -63,6 +64,5 @@ Implements the EU funding UI.
 ### Key Behavior
 
 - Uses `/v1/search/eu`.
-- Provides search limit and semantic-weight sidebar controls.
-- Does not apply extra filtering after retrieval.
+- Provides search-limit sidebar control.
 - Renders cards with `render_eu_project_result`.
