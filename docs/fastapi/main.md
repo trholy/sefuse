@@ -1,36 +1,46 @@
 # `fastapi.main`
 
-Defines the FastAPI application, startup jobs, scheduled refresh workflows, and funding search endpoints.
+Defines the FastAPI application, startup jobs, scheduled refresh workflows, taxonomy endpoint, and funding search endpoints.
 
 ## Main Responsibilities
 
-- Configures environment-backed runtime settings for embeddings, collections, and file paths.
+- Configures runtime settings for embeddings, collections, parquet paths, and taxonomy file path.
 - Starts German and EU data-processing jobs on application startup.
-- Starts embedding refresh pipelines on startup and on a cron schedule.
-- Exposes REST endpoints for German and EU funding search.
-- Aggregates chunk-level Qdrant matches into project-level API responses.
+- Starts embedding refresh pipelines on startup and cron schedule.
+- Exposes REST endpoints for German/EU search and German taxonomy retrieval.
+- Aggregates chunk-level Qdrant matches into project-level responses.
+- Applies key-based taxonomy filters on search results.
 
 ## Key Functions
 
 ### `_normalize_list_field(value)`
 
-Ensures a payload field is always returned as a list.
+Ensures a payload field is always represented as a list.
+
+### `_normalize_filter_keys(filters)`
+
+Normalizes incoming filter payload to taxonomy key sets for:
+
+- `funding_type`
+- `funding_area`
+- `funding_location`
+- `eligible_applicants`
+
+### `_result_matches_filters(result, filter_keys)`
+
+Checks whether an aggregated result matches selected taxonomy key filters using `*_keys` payload fields.
 
 ### `_aggregate_results(results)`
 
-Combines chunk-level vector search results by project ID.
-
-- Uses `id_url` when available, otherwise falls back to the vector point ID.
-- Preserves project metadata from the first hit.
-- Keeps the maximum match score across duplicates.
-
-### `_embed_query(query, model)`
-
-Calls the Ollama embeddings API and returns the query vector.
+Combines chunk-level vector search results by project ID and exposes both display values and `*_keys` values.
 
 ### `_search_collection(request, qdrant_manager)`
 
-Reads the incoming request body, embeds the user query, performs hybrid search, and returns a `{"matches": ...}` response payload.
+Reads search request payload, embeds query, runs vector search, aggregates results, and applies optional taxonomy filters.
+
+### `_load_taxonomy(path)`
+
+Loads taxonomy JSON from disk and returns a safe empty taxonomy structure when unavailable.
 
 ### `lifespan(app)`
 
@@ -39,20 +49,18 @@ FastAPI lifespan handler that:
 1. Runs both data pipelines on startup.
 2. Runs both embedding pipelines on startup.
 3. Registers scheduled German and EU processing jobs with `AsyncIOScheduler`.
-4. Starts the scheduler and shuts it down cleanly on application exit.
-
-## Application State
-
-- Creates one `EmbeddingService`.
-- Creates separate `QdrantManager` instances for German and EU collections.
-- Creates separate `Pipeline` instances for German and EU embedding maintenance.
+4. Starts and cleanly shuts down the scheduler.
 
 ## API Endpoints
 
 ### `POST /v1/search/german`
 
-Searches the German funding collection.
+Searches the German funding collection and supports taxonomy key filters in the request body.
 
 ### `POST /v1/search/eu`
 
 Searches the EU funding collection.
+
+### `GET /v1/vocab/german`
+
+Returns the current German taxonomy contract artifact loaded from `taxonomy_german.json`.

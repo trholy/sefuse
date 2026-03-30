@@ -4,6 +4,8 @@ theme:
 
 nav:
   - Home: README.md
+  - Shared Module:
+      - Taxonomy Contract: shared/taxonomy_contract.md
   - Data Processing Module:
       - EU Funding Main: data_processing/eu_funding_main.md
       - German Funding Main: data_processing/german_funding_main.md
@@ -13,6 +15,7 @@ nav:
           - Common Data Pipeline: data_processing/processing/common_data_pipeline.md
           - EU Funding Processor: data_processing/processing/eu_funding_processor.md
           - German Funding Processor: data_processing/processing/german_funding_processor.md
+          - Taxonomy Contract Builder: data_processing/processing/taxonomy_contract_builder.md
           - UUID Generator: data_processing/processing/uuid_generator.md
           - Value Extractor: data_processing/processing/value_extractor.md
       - Utils:
