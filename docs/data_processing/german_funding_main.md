@@ -24,10 +24,6 @@ Workflow:
 5. Normalize dataset columns with `GermanFundingProcessor`.
 6. Pass the result to `CommonDataPipeline.process_and_store(...)`.
 
-## Notes
-
-- Uses `taxonomy_path=getattr(config, "taxonomy_json", None)` to keep compatibility with lightweight test stubs that may not define `taxonomy_json`.
-
 ## Outputs
 
 - Downloaded ZIP archive.

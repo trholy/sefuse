@@ -31,15 +31,14 @@ Processes a dataframe and writes downstream artifacts.
 - `export_columns`: optional list of columns to export; falls back to `DEFAULT_EXPORT_COLUMNS`.
 - `export_file_prefix`: optional filename prefix for exported text files.
 - `columns_to_drop_before_store`: optional columns removed before parquet persistence.
-- `taxonomy_path`: optional output path for a taxonomy contract JSON artifact.
+- `taxonomy_path`: required output path for a taxonomy contract JSON artifact.
 - `taxonomy_domain`: taxonomy domain label used in the contract artifact.
 
 #### Behavior
 
 - Always cleans the dataframe and writes cleaned/UUID parquet outputs.
-- When `taxonomy_path` is provided:
+- Taxonomy contract flow:
   - Canonicalizes configured category columns.
   - Adds normalized `*_keys` columns for key-based filtering.
   - Builds and writes a versioned taxonomy contract artifact.
   - Exports canonical display values into text files.
-- Without `taxonomy_path`, exported text values are produced via `UniqueValueExtractor`.
