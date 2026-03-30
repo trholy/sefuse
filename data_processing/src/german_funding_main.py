@@ -16,7 +16,6 @@ from data_processing.utils import FileDownloader, ZipExtractor
 
 def run_german_funding_pipeline() -> None:
     config = GermanFundingConfig()
-    taxonomy_path = getattr(config, "taxonomy_json", None)
 
     downloader = FileDownloader()
     extractor = ZipExtractor()
@@ -46,7 +45,7 @@ def run_german_funding_pipeline() -> None:
         source_column="id_hash",
         export_file_prefix="german_",
         data_dir=config.data_dir,
-        taxonomy_path=taxonomy_path,
+        taxonomy_path=config.taxonomy_json,
         taxonomy_domain="german",
     )
 
