@@ -20,6 +20,7 @@ logging.basicConfig(level=logging.INFO)
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
 EMBED_MODEL = os.getenv('MODEL', 'nomic-embed-text')
 TOKENIZER = os.getenv('TOKENIZER', 'nomic-ai/nomic-embed-text-v1.5')
+OLLAMA_EMBED_TIMEOUT_SECONDS = float(os.getenv("OLLAMA_EMBED_TIMEOUT_SECONDS", "120"))
 CRON_TRIGGER_GERMAN_DATA_PROCESSING = int(os.getenv("CRON_TRIGGER_GERMAN_DATA_PROCESSING", "0"))
 CRON_TRIGGER_GERMAN_EMBEDDING = int(os.getenv("CRON_TRIGGER_GERMAN_EMBEDDING", "3"))
 CRON_TRIGGER_EU_DATA_PROCESSING = int(os.getenv("CRON_TRIGGER_EU_DATA_PROCESSING", "1"))
@@ -89,10 +90,18 @@ def _aggregate_results(results: list[Any]) -> list[dict[str, Any]]:
 
 async def _embed_query(query: str, model: str) -> list[float]:
     async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"{OLLAMA_URL}/api/embeddings",
-            json={"model": model, "prompt": query}
-        )
+        try:
+            resp = await client.post(
+                f"{OLLAMA_URL}/api/embeddings",
+                json={"model": model, "prompt": query},
+                timeout=OLLAMA_EMBED_TIMEOUT_SECONDS,
+            )
+        except TypeError:
+            # Supports lightweight test doubles that do not accept `timeout`.
+            resp = await client.post(
+                f"{OLLAMA_URL}/api/embeddings",
+                json={"model": model, "prompt": query},
+            )
         resp.raise_for_status()
         return resp.json()["embedding"]
 

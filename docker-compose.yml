@@ -24,6 +24,11 @@ services:
       # - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       # - OLLAMA_NUM_CTX=2048
     # gpus: all
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   fastapi:
     build: ./fastapi
@@ -34,8 +39,10 @@ services:
       - ./data/funding_data:/app/data
       - ./data_processing/src:/app/data_processing
     depends_on:
-      - qdrant
-      - ollama
+      qdrant:
+        condition: service_started
+      ollama:
+        condition: service_healthy
     environment:
       - MODEL=nomic-embed-text
       - TOKENIZER=nomic-ai/nomic-embed-text-v1.5
@@ -55,6 +62,7 @@ services:
       - EU_REQUEST_TIMEOUT_SECONDS=30
       - EU_PAGE_DELAY_SECONDS=0.2
       - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_EMBED_TIMEOUT_SECONDS=120
       - VECTOR_DB_HOST=qdrant
       - QDRANT_PORT=6333
 
@@ -66,7 +74,10 @@ services:
     volumes:
       - ./data/funding_data:/app/data
     depends_on:
-      - fastapi
+      fastapi:
+        condition: service_started
+      postgres:
+        condition: service_healthy
     environment:
       - MODEL=nomic-embed-text
       - FASTAPI_URL=http://fastapi:8000
