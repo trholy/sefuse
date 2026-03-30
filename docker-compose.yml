@@ -7,6 +7,24 @@ services:
     volumes:
       - ./data/qdrant:/qdrant/storage
 
+  postgres:
+    image: postgres:16-alpine
+    container_name: sefuse_postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-sefuse}
+      - POSTGRES_USER=${POSTGRES_USER:-sefuse}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-sefuse}
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sefuse} -d ${POSTGRES_DB:-sefuse}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   ollama:
     build: ./ollama
     container_name: sefuse_ollama
@@ -86,3 +104,14 @@ services:
     environment:
       - MODEL=nomic-embed-text
       - FASTAPI_URL=http://fastapi:8000
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=${POSTGRES_DB:-sefuse}
+      - DB_USER=${POSTGRES_USER:-sefuse}
+      - DB_PASSWORD=${POSTGRES_PASSWORD:-sefuse}
+      - DB_CONNECT_TIMEOUT_SECONDS=${DB_CONNECT_TIMEOUT_SECONDS:-5}
+      - AUTH_ENABLED=${AUTH_ENABLED:-true}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-change_me_admin}
+      - BCRYPT_ROUNDS=${BCRYPT_ROUNDS:-12}
+      - PASSWORD_MIN_LENGTH=${PASSWORD_MIN_LENGTH:-8}
