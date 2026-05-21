@@ -84,6 +84,18 @@ GERMAN_TAXONOMY_FILE_PATH = os.getenv(
 )
 
 
+class SearchMessage(BaseModel):
+    content: str
+
+
+class SearchRequest(BaseModel):
+    messages: list[SearchMessage] = Field(min_length=1)
+    model: str
+    limit: int = Field(ge=1, le=100, default=20)
+    semantic_weight: float = Field(ge=0.0, le=1.0, default=0.7)
+    filters: dict[str, Any] = Field(default_factory=dict)
+
+
 def _normalize_list_field(value: Any) -> list[Any]:
     """Wrap a scalar in a list, or return the list unchanged; None becomes [].
 
@@ -243,31 +255,40 @@ async def _embed_query(query: str, model: str) -> list[float]:
         httpx.HTTPStatusError: If Ollama returns a non-2xx response.
     """
     async with httpx.AsyncClient() as client:
-        try:
-            resp = await client.post(
-                f"{OLLAMA_URL}/api/embeddings",
-                json={"model": model, "prompt": query},
-                timeout=OLLAMA_EMBED_TIMEOUT_SECONDS,
-            )
-        except TypeError:
-            # Supports lightweight test doubles that do not accept `timeout`.
-            resp = await client.post(
-                f"{OLLAMA_URL}/api/embeddings",
-                json={"model": model, "prompt": query},
-            )
+        resp = await client.post(
+            f"{OLLAMA_URL}/api/embeddings",
+            json={"model": model, "prompt": query},
+            timeout=OLLAMA_EMBED_TIMEOUT_SECONDS,
+        )
         resp.raise_for_status()
         return resp.json()["embedding"]
 
 
 async def _search_collection(
-    request: Request,
+    body: SearchRequest,
     qdrant_manager: QdrantManager,
 ) -> Dict[str, Any]:
-    body = await request.json()
-    query = body["messages"][0]["content"]
-    model = body["model"]
-    limit = body["limit"]
-    semantic_weight = float(body.get("semantic_weight", 0.7))
+    """Core search handler: embed query → hybrid search → aggregate → filter → normalise.
+
+    Pipeline:
+    1. Embeds `body.messages[0].content` via Ollama.
+    2. Runs hybrid search in `qdrant_manager` with `semantic_weight`.
+    3. Deduplicates chunks via `_aggregate_results`.
+    4. Normalises scores to [0, 1] by dividing by the max score.
+    5. Applies taxonomy key filters and optional drop-N/A.
+
+    Args:
+        body (SearchRequest): Validated search request (messages, model, limit,
+            semantic_weight, filters).
+        qdrant_manager (QdrantManager): Collection to search against.
+
+    Returns:
+        dict: `{"matches": [<result_dict>, ...]}` ready for JSON serialisation.
+    """
+    query = body.messages[0].content
+    model = body.model
+    limit = body.limit
+    semantic_weight = body.semantic_weight
 
     query_vector = await _embed_query(query, model)
     results = qdrant_manager.search(
@@ -284,7 +305,7 @@ async def _search_collection(
             for match in aggregated:
                 match["matching_score"] = match["matching_score"] / max_score
 
-    filters = body.get("filters") or {}
+    filters = body.filters or {}
     filter_keys = _normalize_filter_keys(filters)
     drop_na = bool(filters.get("drop_na", False))
 
@@ -456,15 +477,15 @@ eu_pipeline = Pipeline(
 )
 
 @app.post("/v1/search/german")
-async def search_projects(request: Request) -> Dict[str, Any]:
+async def search_projects(body: SearchRequest) -> Dict[str, Any]:
     """Search German funding projects."""
-    return await _search_collection(request, german_qdrant_manager)
+    return await _search_collection(body, german_qdrant_manager)
 
 
 @app.post("/v1/search/eu")
-async def search_eu_projects(request: Request) -> Dict[str, Any]:
+async def search_eu_projects(body: SearchRequest) -> Dict[str, Any]:
     """Search EU funding projects."""
-    return await _search_collection(request, eu_qdrant_manager)
+    return await _search_collection(body, eu_qdrant_manager)
 
 
 @taxonomy_route("/v1/vocab/german")
