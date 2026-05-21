@@ -114,8 +114,8 @@ def search_projects(
         model: str,
         query: str,
         search_limit: int,
-        semantic_weight: float,
         endpoint: str,
+        semantic_weight: float = 0.7,
         filters: Dict[str, List[str]] | None = None,
         timeout: int = 30
 ) -> List[Dict]:

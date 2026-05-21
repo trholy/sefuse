@@ -59,7 +59,7 @@ class BaseFundingSearchPage(ABC):
         return "No projects found."
 
     @abstractmethod
-    def render_sidebar(self) -> tuple[int, int, dict[str, Any]]:
+    def render_sidebar(self) -> tuple[float, int, dict[str, Any]]:
         pass
 
     @abstractmethod
@@ -142,7 +142,7 @@ class GermanFundingSearchPage(BaseFundingSearchPage):
     def no_results_message(self) -> str:
         return "No projects match your selected filters."
 
-    def render_sidebar(self) -> tuple[int, int, dict[str, Any]]:
+    def render_sidebar(self) -> tuple[float, int, dict[str, Any]]:
         options_by_field: dict[str, list[str]] = {}
         labels_by_field: dict[str, dict[str, str]] = {}
         taxonomy_columns: dict[str, Any] = {}
@@ -204,7 +204,7 @@ class GermanFundingSearchPage(BaseFundingSearchPage):
             **selected_filters,
             "drop_na": drop_na,
         }
-        return int(semantic_weight), int(search_limit), {"filters": filters}
+        return float(semantic_weight), int(search_limit), {"filters": filters}
 
     def process_results(
         self,
@@ -234,7 +234,7 @@ class EuFundingSearchPage(BaseFundingSearchPage):
     def query_key(self) -> str:
         return "eu_query"
 
-    def render_sidebar(self) -> tuple[int, int, dict[str, Any]]:
+    def render_sidebar(self) -> tuple[float, int, dict[str, Any]]:
         search_limit = st.sidebar.number_input(
             "Search limit",
             min_value=5,
@@ -253,7 +253,7 @@ class EuFundingSearchPage(BaseFundingSearchPage):
             help="0 = pure keyword search, 1 = pure semantic search.",
         )
 
-        return int(semantic_weight), int(search_limit), {}
+        return float(semantic_weight), int(search_limit), {}
 
     def render_result(self, result: dict[str, Any]) -> None:
         render_eu_project_result(result)
