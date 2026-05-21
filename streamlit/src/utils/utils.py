@@ -1,3 +1,4 @@
+import os
 from typing import List, Any, Union, Dict
 import logging
 from datetime import datetime
@@ -7,6 +8,24 @@ import streamlit as st
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+_INTERNAL_API_TOKEN = os.getenv("INTERNAL_API_TOKEN", "")
+
+
+def _api_headers() -> dict[str, str]:
+    """Build HTTP headers for internal FastAPI requests.
+
+    Includes the ``X-Internal-Token`` header when the
+    ``INTERNAL_API_TOKEN`` environment variable is set, allowing the
+    FastAPI ``InternalTokenMiddleware`` to authenticate the caller.
+
+    Returns:
+        dict[str, str]: Header dict (may be empty if no token is configured).
+    """
+    headers: dict[str, str] = {}
+    if _INTERNAL_API_TOKEN:
+        headers["X-Internal-Token"] = _INTERNAL_API_TOKEN
+    return headers
 
 
 def safe_join(
@@ -45,19 +64,22 @@ def search_projects(
     response = requests.post(
         f"{fastapi_url}{endpoint}",
         json=payload,
-        timeout=timeout
+        headers=_api_headers(),
+        timeout=timeout,
     )
     response.raise_for_status()
     data = response.json()
     return data.get("matches", [])
 
 
+@st.cache_data(ttl=300)
 def fetch_german_taxonomy(
         fastapi_url: str,
         timeout: int = 30
 ) -> Dict[str, Any]:
     response = requests.get(
         f"{fastapi_url}/v1/vocab/german",
+        headers=_api_headers(),
         timeout=timeout,
     )
     response.raise_for_status()

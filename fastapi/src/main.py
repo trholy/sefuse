@@ -1,3 +1,4 @@
+import hmac
 import os
 import asyncio
 import json
@@ -6,8 +7,13 @@ from pathlib import Path
 from typing import Dict, Any
 
 import httpx
-from fastapi import FastAPI, Request
 from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from pydantic import BaseModel, Field
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -18,6 +24,39 @@ from utils import EmbeddingService, Pipeline, QdrantManager
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
+
+
+INTERNAL_API_TOKEN = os.getenv("INTERNAL_API_TOKEN", "")
+
+
+class InternalTokenMiddleware(BaseHTTPMiddleware):
+    """Starlette middleware that gates every request behind a shared secret.
+
+    Reads the expected token from the ``INTERNAL_API_TOKEN`` environment
+    variable. When the variable is set, every incoming request must carry
+    a matching ``X-Internal-Token`` header; mismatches receive a 403
+    response. Comparison uses ``hmac.compare_digest`` to avoid timing
+    side-channels. When the variable is empty the middleware is a no-op,
+    so local development without a token still works.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        """Validate the ``X-Internal-Token`` header and forward or reject the request.
+
+        Args:
+            request (Request): Incoming HTTP request.
+            call_next: ASGI call chain.
+
+        Returns:
+            Response: The downstream response on success, or a 403
+            ``JSONResponse`` if the token is missing or incorrect.
+        """
+        if not INTERNAL_API_TOKEN:
+            return await call_next(request)
+        token = request.headers.get("X-Internal-Token", "")
+        if not hmac.compare_digest(token, INTERNAL_API_TOKEN):
+            return JSONResponse(status_code=403, content={"detail": "Forbidden"})
+        return await call_next(request)
 
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
@@ -330,7 +369,8 @@ async def lifespan(app: FastAPI):
 
 
 scheduler = AsyncIOScheduler()
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+app.add_middleware(InternalTokenMiddleware)
 taxonomy_route = app.get if hasattr(app, "get") else app.post
 
 # Initialize services

@@ -9,8 +9,12 @@ COPY streamlit/src/utils/ /app/utils/
 COPY streamlit/src/pages/ /app/pages/
 COPY streamlit/src/ui/ /app/ui/
 COPY shared/ /app/shared/
+COPY streamlit/.streamlit /app/.streamlit/
 
 RUN pip install --no-cache-dir -r requirements.txt
+
+RUN adduser --disabled-password --no-create-home appuser
+USER appuser
 
 EXPOSE 8501
 
