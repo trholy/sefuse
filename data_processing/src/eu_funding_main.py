@@ -25,7 +25,6 @@ def _load_or_fetch_open_calls(
     try:
         calls = fetcher.fetch_open_and_forthcoming_calls(
             page_size=config.page_size,
-            max_pages=config.max_pages,
         )
         fetcher.save(calls, config.raw_json)
         return calls

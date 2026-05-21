@@ -5,11 +5,11 @@ from pathlib import Path
 
 import requests
 
-
-EU_STATUS_FORTHCOMING = "31094501"
-EU_STATUS_OPEN = "31094502"
-EU_STATUS_CLOSED = "31094503"
-EU_ALLOWED_STATUS_CODES = {EU_STATUS_FORTHCOMING, EU_STATUS_OPEN, EU_STATUS_CLOSED}
+from data_processing.config import (
+    EU_STATUS_FORTHCOMING,
+    EU_STATUS_OPEN,
+    EU_ACTIVE_STATUS_CODES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +89,7 @@ class EuFundingFetcher:
 
     @staticmethod
     def _is_allowed_status(status_code: str | None) -> bool:
-        return status_code in EU_ALLOWED_STATUS_CODES
+        return status_code in EU_ACTIVE_STATUS_CODES
 
     def _fetch_page(self, page_number: int, page_size: int) -> list[dict]:
         params = {
@@ -110,7 +110,6 @@ class EuFundingFetcher:
                             "status": [
                                 EU_STATUS_FORTHCOMING,
                                 EU_STATUS_OPEN,
-                                EU_STATUS_CLOSED,
                             ]
                         }
                     },
@@ -142,12 +141,11 @@ class EuFundingFetcher:
     def fetch_open_and_forthcoming_calls(
         self,
         page_size: int = 50,
-        max_pages: int = 100,
     ) -> list[dict]:
         results: list[dict] = []
         page = 1
 
-        while page <= max_pages:
+        while True:
             items = self._fetch_page(page, page_size)
             if not items:
                 break
