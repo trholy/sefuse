@@ -85,6 +85,14 @@ GERMAN_TAXONOMY_FILE_PATH = os.getenv(
 
 
 def _normalize_list_field(value: Any) -> list[Any]:
+    """Wrap a scalar in a list, or return the list unchanged; None becomes [].
+
+    Args:
+        value (Any): Scalar, list, or None from a Qdrant payload field.
+
+    Returns:
+        list[Any]: Value guaranteed to be a list.
+    """
     if value is None:
         return []
     if isinstance(value, list):
@@ -93,6 +101,18 @@ def _normalize_list_field(value: Any) -> list[Any]:
 
 
 def _normalize_filter_keys(filters: Any) -> dict[str, set[str]]:
+    """Convert raw filter values from a request to normalised taxonomy key sets.
+
+    Processes the four filterable taxonomy fields (`funding_type`, `funding_area`,
+    `funding_location`, `eligible_applicants`). Fields absent from `filters` are skipped.
+
+    Args:
+        filters (Any): Filters dict from `SearchRequest.filters`. Non-dict input
+            returns an empty dict.
+
+    Returns:
+        dict[str, set[str]]: Mapping of field name to set of normalised taxonomy keys.
+    """
     if not isinstance(filters, dict):
         return {}
 
@@ -114,6 +134,20 @@ def _result_matches_filters(
     result: dict[str, Any],
     filter_keys: dict[str, set[str]],
 ) -> bool:
+    """Return True if a search result satisfies all active taxonomy filters.
+
+    A result passes when, for every filtered field, at least one of its
+    `<field>_keys` values intersects the requested key set (AND across fields,
+    OR within each field).
+
+    Args:
+        result (dict[str, Any]): Aggregated result dict from `_aggregate_results`.
+        filter_keys (dict[str, set[str]]): Normalised filter keys from
+            `_normalize_filter_keys`.
+
+    Returns:
+        bool: True if the result matches all filters, or if `filter_keys` is empty.
+    """
     if not filter_keys:
         return True
 
@@ -127,6 +161,18 @@ def _result_matches_filters(
 
 
 def _aggregate_results(results: list[Any]) -> list[dict[str, Any]]:
+    """Deduplicate Qdrant results by project ID, keeping the highest chunk score.
+
+    Multiple chunks from the same project may appear in search results. This
+    function collapses them into one entry per `id_url` (or `result.id` as fallback),
+    retaining all metadata from the first occurrence and the max score across chunks.
+
+    Args:
+        results (list[Any]): Raw `ScoredPoint` list from `QdrantManager.search`.
+
+    Returns:
+        list[dict[str, Any]]: Deduplicated result dicts with a `matching_score` field.
+    """
     aggregated: Dict[str, Dict[str, Any]] = {}
     for result in results:
         payload = result.payload
@@ -184,6 +230,18 @@ def _aggregate_results(results: list[Any]) -> list[dict[str, Any]]:
 
 
 async def _embed_query(query: str, model: str) -> list[float]:
+    """Fetch a dense embedding vector for a search query from the Ollama API.
+
+    Args:
+        query (str): User's search text.
+        model (str): Ollama model name, e.g. `"nomic-embed-text"`.
+
+    Returns:
+        list[float]: Dense embedding vector.
+
+    Raises:
+        httpx.HTTPStatusError: If Ollama returns a non-2xx response.
+    """
     async with httpx.AsyncClient() as client:
         try:
             resp = await client.post(
@@ -245,6 +303,15 @@ async def _search_collection(
 
 
 def _load_taxonomy(path: str) -> dict[str, Any]:
+    """Load a taxonomy JSON artifact from disk, returning a safe empty structure on failure.
+
+    Args:
+        path (str): File path to the taxonomy JSON produced by `TaxonomyContractBuilder`.
+
+    Returns:
+        dict: Parsed taxonomy dict, or a blank artifact skeleton if the file is
+            missing or malformed.
+    """
     taxonomy_path = Path(path)
     if not taxonomy_path.exists():
         return {

@@ -5,11 +5,35 @@ Defines the FastAPI application, startup jobs, scheduled refresh workflows, taxo
 ## Main Responsibilities
 
 - Configures runtime settings for embeddings, collections, parquet paths, and taxonomy file path.
+- Gates all endpoints behind a shared-secret `X-Internal-Token` header via `InternalTokenMiddleware`.
+- Disables the public `/docs`, `/redoc`, and `/openapi.json` documentation endpoints.
 - Starts German and EU data-processing jobs on application startup.
 - Starts embedding refresh pipelines on startup and cron schedule.
 - Exposes REST endpoints for German/EU search and German taxonomy retrieval.
 - Aggregates chunk-level Qdrant matches into project-level responses.
 - Applies key-based taxonomy filters on search results.
+
+## Middleware
+
+### `InternalTokenMiddleware`
+
+Starlette middleware that validates a shared secret on every request. Reads the expected token from the `INTERNAL_API_TOKEN` environment variable. When set, every incoming request must carry a matching `X-Internal-Token` header; mismatches receive a 403 response. Uses `hmac.compare_digest` for constant-time comparison. When the variable is empty the middleware is a no-op.
+
+## Pydantic Models
+
+### `SearchMessage`
+
+- `content` (str): Text content of one message.
+
+### `SearchRequest`
+
+Validated request body for all search endpoints.
+
+- `messages` (list[SearchMessage], min_length=1): At least one message; the first message's `content` is used as the query.
+- `model` (str): Embedding model name.
+- `limit` (int, ge=1, le=200, default=20): Maximum number of results to return.
+- `semantic_weight` (float, ge=0.0, le=1.0, default=0.7): Hybrid search weight (0=keyword, 1=semantic).
+- `filters` (dict, default={}): Optional taxonomy filters and drop-N/A flag.
 
 ## Key Functions
 
@@ -34,9 +58,13 @@ Checks whether an aggregated result matches selected taxonomy key filters using 
 
 Combines chunk-level vector search results by project ID and exposes both display values and `*_keys` values.
 
-### `_search_collection(request, qdrant_manager)`
+### `_embed_query(query, model)`
 
-Reads search request payload, embeds query, runs vector search, aggregates results, and applies optional taxonomy filters.
+Fetches a dense embedding vector for the search query from the Ollama API.
+
+### `_search_collection(body, qdrant_manager)`
+
+Embeds the query from a validated `SearchRequest`, runs hybrid search, aggregates chunk-level results by project, normalizes scores to [0, 1], and applies taxonomy filters and drop-N/A.
 
 ### `_load_taxonomy(path)`
 
