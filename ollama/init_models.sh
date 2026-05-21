@@ -6,6 +6,10 @@ if [ -z "$MODEL" ]; then
   exit 1
 fi
 
-echo "Pulling Ollama model: $MODEL"
-ollama pull "$MODEL"
-echo "Model downloaded."
+if ollama list | grep -q "$MODEL"; then
+  echo "Model $MODEL already present, skipping pull."
+else
+  echo "Pulling Ollama model: $MODEL"
+  ollama pull "$MODEL"
+  echo "Model downloaded."
+fi
