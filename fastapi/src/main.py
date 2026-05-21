@@ -170,9 +170,15 @@ async def _search_collection(
     query = body["messages"][0]["content"]
     model = body["model"]
     limit = body["limit"]
+    semantic_weight = float(body.get("semantic_weight", 0.7))
 
     query_vector = await _embed_query(query, model)
-    results = qdrant_manager.search(query_vector, limit)
+    results = qdrant_manager.search(
+        query_vector=query_vector,
+        query_text=query,
+        limit=limit,
+        semantic_weight=semantic_weight,
+    )
     aggregated = _aggregate_results(results)
 
     filter_keys = _normalize_filter_keys(body.get("filters"))
