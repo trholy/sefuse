@@ -7,7 +7,18 @@ from collections import Counter
 from collections.abc import Mapping
 from typing import Any, Dict, List
 
-from qdrant_client import QdrantClient, models
+from qdrant_client import QdrantClient
+from qdrant_client.models import (
+    Distance,
+    Fusion,
+    FusionQuery,
+    Modifier,
+    PointStruct,
+    Prefetch,
+    SparseVector,
+    SparseVectorParams,
+    VectorParams,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,25 +54,18 @@ class QdrantManager:
 
     @staticmethod
     def _hybrid_collection_config() -> dict[str, Any]:
-        sparse_vector_params_cls = getattr(models, "SparseVectorParams", None)
-        modifier_idf = getattr(getattr(models, "Modifier", None), "IDF", None)
-
-        sparse_vectors_config: dict[str, Any] = {}
-        if sparse_vector_params_cls is not None:
-            sparse_vectors_config = {
-                SPARSE_VECTOR_NAME: sparse_vector_params_cls(
-                    modifier=modifier_idf
-                )
-            }
-
         return {
             "vectors_config": {
-                DENSE_VECTOR_NAME: models.VectorParams(
+                DENSE_VECTOR_NAME: VectorParams(
                     size=768,
-                    distance=models.Distance.COSINE,
+                    distance=Distance.COSINE,
                 )
             },
-            "sparse_vectors_config": sparse_vectors_config,
+            "sparse_vectors_config": {
+                SPARSE_VECTOR_NAME: SparseVectorParams(
+                    modifier=Modifier.IDF,
+                )
+            },
         }
 
     def _init_qdrant(
@@ -89,21 +93,17 @@ class QdrantManager:
         config = self._hybrid_collection_config()
 
         if self.collection_name not in existing_collections:
-            self._create_collection_with_fallback(
-                client=client,
+            client.create_collection(
                 collection_name=self.collection_name,
-                config=config,
+                vectors_config=config["vectors_config"],
+                sparse_vectors_config=config["sparse_vectors_config"],
             )
             logger.info("Created hybrid collection %s", self.collection_name)
             return client
 
         collection_info = client.get_collection(self.collection_name)
         vectors_config = collection_info.config.params.vectors
-        sparse_vectors_config = getattr(
-            collection_info.config.params,
-            "sparse_vectors",
-            None,
-        )
+        sparse_vectors_config = collection_info.config.params.sparse_vectors
 
         has_dense_named_vector = self._vectors_include_dense(vectors_config)
         has_sparse_named_vector = self._sparse_vectors_include_sparse(
@@ -116,10 +116,10 @@ class QdrantManager:
                 "Recreating collection for hybrid search.",
                 self.collection_name,
             )
-            self._recreate_collection_with_fallback(
-                client=client,
+            client.recreate_collection(
                 collection_name=self.collection_name,
-                config=config,
+                vectors_config=config["vectors_config"],
+                sparse_vectors_config=config["sparse_vectors_config"],
             )
         elif not has_sparse_named_vector:
             logger.info(
@@ -141,65 +141,22 @@ class QdrantManager:
         return re.findall(r"\b\w+\b", text.lower())
 
     @staticmethod
-    def _create_collection_with_fallback(
-        client: QdrantClient,
-        collection_name: str,
-        config: dict[str, Any],
-    ) -> None:
-        try:
-            client.create_collection(
-                collection_name=collection_name,
-                vectors_config=config["vectors_config"],
-                sparse_vectors_config=config["sparse_vectors_config"],
-            )
-        except TypeError:
-            client.create_collection(
-                collection_name=collection_name,
-                vectors_config=config["vectors_config"],
-            )
-
-    @staticmethod
-    def _recreate_collection_with_fallback(
-        client: QdrantClient,
-        collection_name: str,
-        config: dict[str, Any],
-    ) -> None:
-        try:
-            client.recreate_collection(
-                collection_name=collection_name,
-                vectors_config=config["vectors_config"],
-                sparse_vectors_config=config["sparse_vectors_config"],
-            )
-        except TypeError:
-            client.recreate_collection(
-                collection_name=collection_name,
-                vectors_config=config["vectors_config"],
-            )
-
-    @staticmethod
     def _token_to_index(token: str) -> int:
         digest = hashlib.md5(token.encode("utf-8")).hexdigest()
         return int(digest[:8], 16)
 
     @classmethod
-    def _build_sparse_vector(cls, text: str) -> Any:
+    def _build_sparse_vector(cls, text: str) -> SparseVector:
         token_counts = Counter(cls._tokenize(text))
         if not token_counts:
-            sparse_vector_cls = getattr(models, "SparseVector", None)
-            if sparse_vector_cls is None:
-                return {"indices": [], "values": []}
-            return sparse_vector_cls(indices=[], values=[])
-
+            return SparseVector(indices=[], values=[])
         indexed_tokens = sorted(
             (cls._token_to_index(token), float(count))
             for token, count in token_counts.items()
         )
         indices = [index for index, _ in indexed_tokens]
         values = [value for _, value in indexed_tokens]
-        sparse_vector_cls = getattr(models, "SparseVector", None)
-        if sparse_vector_cls is None:
-            return {"indices": indices, "values": values}
-        return sparse_vector_cls(indices=indices, values=values)
+        return SparseVector(indices=indices, values=values)
 
     def insert_projects(
             self,
@@ -208,7 +165,7 @@ class QdrantManager:
             ids: List[str]
     ) -> None:
         points = [
-            models.PointStruct(
+            PointStruct(
                 id=str(id_),
                 vector=self._build_point_vector(embedding, metadata),
                 payload=metadata,
@@ -241,15 +198,7 @@ class QdrantManager:
         query_text = str(query_text)
         semantic_weight = max(0.0, min(1.0, semantic_weight))
 
-        prefetch_cls = getattr(models, "Prefetch", None)
-        fusion_query_cls = getattr(models, "FusionQuery", None)
-        fusion_rrf = getattr(getattr(models, "Fusion", None), "RRF", None)
-        hybrid_available = all(
-            c is not None
-            for c in (prefetch_cls, fusion_query_cls, fusion_rrf)
-        )
-
-        if semantic_weight >= 1.0 or not hybrid_available:
+        if semantic_weight >= 1.0:
             response = self.client.query_points(
                 collection_name=self.collection_name,
                 query=query_vector,
@@ -276,27 +225,16 @@ class QdrantManager:
         response = self.client.query_points(
             collection_name=self.collection_name,
             prefetch=[
-                prefetch_cls(
-                    query=query_vector,
-                    using=DENSE_VECTOR_NAME,
-                    limit=dense_limit,
-                ),
-                prefetch_cls(
-                    query=sparse_query,
-                    using=SPARSE_VECTOR_NAME,
-                    limit=sparse_limit,
-                ),
+                Prefetch(query=query_vector, using=DENSE_VECTOR_NAME, limit=dense_limit),
+                Prefetch(query=sparse_query, using=SPARSE_VECTOR_NAME, limit=sparse_limit),
             ],
-            query=fusion_query_cls(fusion=fusion_rrf),
+            query=FusionQuery(fusion=Fusion.RRF),
             limit=limit,
         )
         return response.points
 
     @staticmethod
-    def _build_point_vector(embedding: list[float], metadata: Dict[str, Any]) -> Any:
-        if getattr(models, "SparseVector", None) is None:
-            return embedding
-
+    def _build_point_vector(embedding: list[float], metadata: Dict[str, Any]) -> dict[str, Any]:
         return {
             DENSE_VECTOR_NAME: embedding,
             SPARSE_VECTOR_NAME: QdrantManager._build_sparse_vector(

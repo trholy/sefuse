@@ -67,19 +67,6 @@ class CommonDataPipeline:
         cleaned_output_df.write_parquet(cleaned_path)
 
         data_dir.mkdir(parents=True, exist_ok=True)
-        for column in columns_to_export:
-            values: list[str] = []
-            artifact_columns = taxonomy_artifact.get("columns")
-            entries = artifact_columns.get(column, []) if isinstance(artifact_columns, dict) else []
-            for entry in entries:
-                if isinstance(entry, dict):
-                    canonical = entry.get("canonical")
-                    if isinstance(canonical, str) and canonical:
-                        values.append(canonical)
-            self._value_extractor.save(
-                values,
-                data_dir / f"{export_file_prefix}{column}.txt",
-            )
 
         uuid_path.parent.mkdir(parents=True, exist_ok=True)
         uuid_output_df.write_parquet(uuid_path)

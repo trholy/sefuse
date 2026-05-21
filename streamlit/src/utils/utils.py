@@ -1,11 +1,9 @@
-import time
 from typing import List, Any, Union, Dict
 import logging
 from datetime import datetime
 
 import requests
 import streamlit as st
-from shared.taxonomy_contract import taxonomy_key_set
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -22,91 +20,6 @@ def safe_join(
     if isinstance(value, (list, tuple, set)):
         return sep.join(str(v) for v in value if v is not None)
     return str(value)
-
-
-def normalize_list(value: Any) -> List[str]:
-    """Ensure the value is always a list of strings."""
-    if value is None:
-        return []
-    if isinstance(value, str):
-        return [value]
-    if isinstance(value, (list, tuple, set)):
-        return [str(v) for v in value if v is not None]
-    return [str(value)]
-
-
-def read_extracted_filter_options(
-        file_path: str,
-        retries: int = 10,
-        delay: float = 1
-) -> List[str]:
-    """Read lines from a file with retry logic."""
-    attempt = 0
-    while True:
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                return [line.strip() for line in f if line.strip()]
-        except FileNotFoundError as e:
-            attempt += 1
-            logger.warning(f"File not found (attempt {attempt}): {file_path}")
-            if attempt >= retries:
-                raise
-            time.sleep(delay)
-            delay = min(delay * 2, 30)
-
-def apply_filters(
-        matches: List[Dict],
-        filters: Dict[str, List[str]]
-) -> List[Dict]:
-    """Filter the API results according to sidebar selections."""
-    selected_location_keys = taxonomy_key_set(filters.get("funding_location") or [])
-    selected_funding_type_keys = taxonomy_key_set(filters.get("funding_type") or [])
-    selected_eligible_keys = taxonomy_key_set(filters.get("eligible_applicants") or [])
-    selected_funding_area_keys = taxonomy_key_set(filters.get("funding_area") or [])
-    drop_na = bool(filters.get("drop_na", False))
-
-    filtered = []
-    for r in matches:
-        funding_location_keys = taxonomy_key_set(normalize_list(r.get("funding_location_keys")))
-        funding_type_keys = taxonomy_key_set(normalize_list(r.get("funding_type_keys")))
-        eligible_applicants_keys = taxonomy_key_set(normalize_list(r.get("eligible_applicants_keys")))
-        funding_area_keys = taxonomy_key_set(normalize_list(r.get("funding_area_keys")))
-        short_description = r.get("project_short_description")
-        full_description = r.get("project_full_description")
-
-        if selected_location_keys and not funding_location_keys.intersection(selected_location_keys):
-            continue
-        if selected_funding_type_keys and not funding_type_keys.intersection(selected_funding_type_keys):
-            continue
-        if selected_eligible_keys and not eligible_applicants_keys.intersection(selected_eligible_keys):
-            continue
-        if selected_funding_area_keys and not funding_area_keys.intersection(selected_funding_area_keys):
-            continue
-        if drop_na and "N/A" == short_description == full_description:
-            continue
-        filtered.append(r)
-    return filtered
-
-
-def aggregate_chunks(matches: List[Dict]) -> List[Dict]:
-    """
-    Aggregate multiple chunk results per project into a single entry.
-    Keeps metadata from the first occurrence and uses the max score among chunks.
-    """
-    aggregated: Dict[str, Dict] = {}
-    for r in matches:
-        project_id = r.get("project_id")
-        if not project_id:
-            continue
-        if project_id not in aggregated:
-            aggregated[project_id] = r.copy()
-        else:
-            # Update score if this chunk has higher similarity
-            aggregated[project_id]["matching_score"] = max(
-                aggregated[project_id].get("matching_score", 0),
-                r.get("matching_score", 0)
-            )
-    return list(aggregated.values())
 
 
 def search_projects(

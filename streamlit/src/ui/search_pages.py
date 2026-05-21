@@ -6,8 +6,6 @@ from typing import Any
 import streamlit as st
 
 from utils import (
-    aggregate_chunks,
-    apply_filters,
     fetch_german_taxonomy,
     render_eu_project_result,
     render_german_project_result,
@@ -66,13 +64,6 @@ class BaseFundingSearchPage(ABC):
     def render_result(self, result: dict[str, Any]) -> None:
         pass
 
-    def process_results(
-        self,
-        results: list[dict[str, Any]],
-        context: dict[str, Any],
-    ) -> list[dict[str, Any]]:
-        return results
-
     def render(self) -> None:
         st.set_page_config(
             page_title=f"SeFuSe - {self.page_title}",
@@ -91,7 +82,7 @@ class BaseFundingSearchPage(ABC):
 
         if st.button("Search", key=self.search_button_key) and query:
             try:
-                matches = search_projects(
+                results = search_projects(
                     fastapi_url=self.fastapi_url,
                     model=self.model,
                     query=query,
@@ -100,8 +91,6 @@ class BaseFundingSearchPage(ABC):
                     endpoint=self.search_endpoint,
                     filters=context.get("filters"),
                 )
-                results = aggregate_chunks(matches)
-                results = self.process_results(results, context)
 
                 if results:
                     st.success(f"Found {len(results)} matching projects")
@@ -205,13 +194,6 @@ class GermanFundingSearchPage(BaseFundingSearchPage):
             "drop_na": drop_na,
         }
         return float(semantic_weight), int(search_limit), {"filters": filters}
-
-    def process_results(
-        self,
-        results: list[dict[str, Any]],
-        context: dict[str, Any],
-    ) -> list[dict[str, Any]]:
-        return apply_filters(results, context["filters"])
 
     def render_result(self, result: dict[str, Any]) -> None:
         render_german_project_result(result)

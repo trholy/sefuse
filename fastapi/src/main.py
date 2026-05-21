@@ -181,15 +181,28 @@ async def _search_collection(
     )
     aggregated = _aggregate_results(results)
 
-    filter_keys = _normalize_filter_keys(body.get("filters"))
-    if filter_keys:
-        aggregated = [
-            match
-            for match in aggregated
-            if _result_matches_filters(match, filter_keys)
-        ]
+    if aggregated:
+        max_score = max(match["matching_score"] for match in aggregated)
+        if max_score > 0:
+            for match in aggregated:
+                match["matching_score"] = match["matching_score"] / max_score
 
-    return {"matches": aggregated}
+    filters = body.get("filters") or {}
+    filter_keys = _normalize_filter_keys(filters)
+    drop_na = bool(filters.get("drop_na", False))
+
+    filtered = []
+    for match in aggregated:
+        if filter_keys and not _result_matches_filters(match, filter_keys):
+            continue
+        if drop_na:
+            short = match.get("project_short_description", "")
+            full = match.get("project_full_description", "")
+            if short == "N/A" and full == "N/A":
+                continue
+        filtered.append(match)
+
+    return {"matches": filtered}
 
 
 def _load_taxonomy(path: str) -> dict[str, Any]:
