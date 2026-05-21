@@ -13,7 +13,6 @@ EU_API_URL = os.getenv(
 )
 EU_API_KEY = os.getenv("EU_API_KEY", "SEDIA")
 EU_PAGE_SIZE = int(os.getenv("EU_PAGE_SIZE", "50"))
-EU_MAX_PAGES = int(os.getenv("EU_MAX_PAGES", "100"))
 EU_REQUEST_TIMEOUT_SECONDS = float(
     os.getenv("EU_REQUEST_TIMEOUT_SECONDS", "30")
 )
@@ -28,6 +27,7 @@ class GermanFundingConfig:
     raw_parquet: Path = data_dir / "german_parquet_data.parquet"
     cleaned_parquet: Path = data_dir / "german_parquet_data_cleaned.parquet"
     uuid_parquet: Path = data_dir / "german_parquet_data_uuid.parquet"
+    taxonomy_json: Path = data_dir / "taxonomy_german.json"
 
 
 @dataclass(frozen=True)
@@ -37,10 +37,10 @@ class EuFundingConfig:
     api_url: str = EU_API_URL
     api_key: str = EU_API_KEY
     page_size: int = EU_PAGE_SIZE
-    max_pages: int = EU_MAX_PAGES
     request_timeout_seconds: float = EU_REQUEST_TIMEOUT_SECONDS
     page_delay_seconds: float = EU_PAGE_DELAY_SECONDS
 
     raw_json: Path = data_dir / "eu_open_calls.json"
     cleaned_parquet: Path = data_dir / "eu_parquet_data_cleaned.parquet"
     uuid_parquet: Path = data_dir / "eu_parquet_data_uuid.parquet"
+    taxonomy_json: Path = data_dir / "taxonomy_eu.json"

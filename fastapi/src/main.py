@@ -1,6 +1,8 @@
 import os
 import asyncio
+import json
 import logging
+from pathlib import Path
 from typing import Dict, Any
 
 import httpx
@@ -11,6 +13,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from data_processing.german_funding_main import run_german_funding_pipeline
 from data_processing.eu_funding_main import run_eu_funding_pipeline
+from shared.taxonomy_contract import taxonomy_key_set
 from utils import EmbeddingService, Pipeline, QdrantManager
 
 logger = logging.getLogger(__name__)
@@ -25,6 +28,7 @@ CRON_TRIGGER_GERMAN_DATA_PROCESSING = int(os.getenv("CRON_TRIGGER_GERMAN_DATA_PR
 CRON_TRIGGER_GERMAN_EMBEDDING = int(os.getenv("CRON_TRIGGER_GERMAN_EMBEDDING", "3"))
 CRON_TRIGGER_EU_DATA_PROCESSING = int(os.getenv("CRON_TRIGGER_EU_DATA_PROCESSING", "1"))
 CRON_TRIGGER_EU_EMBEDDING = int( os.getenv("CRON_TRIGGER_EU_EMBEDDING", "4"))
+RUN_STARTUP_PIPELINES_SYNC = os.getenv("RUN_STARTUP_PIPELINES_SYNC", "false",).strip().lower() in {"1", "true", "yes", "on"}
 GERMAN_COLLECTION_NAME = os.getenv("GERMAN_COLLECTION_NAME", "fundings_german")
 EU_COLLECTION_NAME = os.getenv("EU_COLLECTION_NAME", "fundings_eu")
 GERMAN_EXTRACTED_FILE_PATH = os.getenv(
@@ -35,12 +39,52 @@ EU_EXTRACTED_FILE_PATH = os.getenv(
     "EU_EXTRACTED_FILE_PATH",
     "data/eu_parquet_data_uuid.parquet",
 )
+GERMAN_TAXONOMY_FILE_PATH = os.getenv(
+    "GERMAN_TAXONOMY_FILE_PATH",
+    "data/taxonomy_german.json",
+)
 
 
 def _normalize_list_field(value: Any) -> list[Any]:
+    if value is None:
+        return []
     if isinstance(value, list):
         return value
     return [value]
+
+
+def _normalize_filter_keys(filters: Any) -> dict[str, set[str]]:
+    if not isinstance(filters, dict):
+        return {}
+
+    normalized: dict[str, set[str]] = {}
+    for field in (
+        "funding_type",
+        "funding_area",
+        "funding_location",
+        "eligible_applicants",
+    ):
+        keys = taxonomy_key_set(_normalize_list_field(filters.get(field)))
+        if keys:
+            normalized[field] = keys
+
+    return normalized
+
+
+def _result_matches_filters(
+    result: dict[str, Any],
+    filter_keys: dict[str, set[str]],
+) -> bool:
+    if not filter_keys:
+        return True
+
+    for field, selected_keys in filter_keys.items():
+        row_keys = _normalize_list_field(result.get(f"{field}_keys"))
+        normalized_row_keys = taxonomy_key_set(row_keys)
+        if not normalized_row_keys.intersection(selected_keys):
+            return False
+
+    return True
 
 
 def _aggregate_results(results: list[Any]) -> list[dict[str, Any]]:
@@ -67,14 +111,26 @@ def _aggregate_results(results: list[Any]) -> list[dict[str, Any]]:
                 "funding_type": _normalize_list_field(
                     payload.get("funding_type")
                 ),
+                "funding_type_keys": _normalize_list_field(
+                    payload.get("funding_type_keys")
+                ),
                 "funding_area": _normalize_list_field(
                     payload.get("funding_area")
+                ),
+                "funding_area_keys": _normalize_list_field(
+                    payload.get("funding_area_keys")
                 ),
                 "funding_location": _normalize_list_field(
                     payload.get("funding_location")
                 ),
+                "funding_location_keys": _normalize_list_field(
+                    payload.get("funding_location_keys")
+                ),
                 "eligible_applicants": _normalize_list_field(
                     payload.get("eligible_applicants")
+                ),
+                "eligible_applicants_keys": _normalize_list_field(
+                    payload.get("eligible_applicants_keys")
                 ),
                 "project_website": payload.get("url", ""),
                 "matching_score": result.score,
@@ -114,15 +170,72 @@ async def _search_collection(
     query = body["messages"][0]["content"]
     model = body["model"]
     limit = body["limit"]
+    semantic_weight = float(body.get("semantic_weight", 0.7))
 
     query_vector = await _embed_query(query, model)
-    results = qdrant_manager.search(query_vector, limit)
+    results = qdrant_manager.search(
+        query_vector=query_vector,
+        query_text=query,
+        limit=limit,
+        semantic_weight=semantic_weight,
+    )
+    aggregated = _aggregate_results(results)
 
-    return {"matches": _aggregate_results(results)}
+    if aggregated:
+        max_score = max(match["matching_score"] for match in aggregated)
+        if max_score > 0:
+            for match in aggregated:
+                match["matching_score"] = match["matching_score"] / max_score
+
+    filters = body.get("filters") or {}
+    filter_keys = _normalize_filter_keys(filters)
+    drop_na = bool(filters.get("drop_na", False))
+
+    filtered = []
+    for match in aggregated:
+        if filter_keys and not _result_matches_filters(match, filter_keys):
+            continue
+        if drop_na:
+            short = match.get("project_short_description", "")
+            full = match.get("project_full_description", "")
+            if short == "N/A" and full == "N/A":
+                continue
+        filtered.append(match)
+
+    return {"matches": filtered}
+
+
+def _load_taxonomy(path: str) -> dict[str, Any]:
+    taxonomy_path = Path(path)
+    if not taxonomy_path.exists():
+        return {
+            "domain": "german",
+            "generated_at_utc": "",
+            "version": "",
+            "hash": "",
+            "columns": {},
+        }
+
+    try:
+        return json.loads(taxonomy_path.read_text(encoding="utf-8"))
+    except Exception as error:
+        logger.warning(
+            "Failed to load taxonomy from %s: %s",
+            taxonomy_path,
+            error,
+        )
+        return {
+            "domain": "german",
+            "generated_at_utc": "",
+            "version": "",
+            "hash": "",
+            "columns": {},
+        }
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     loop = asyncio.get_running_loop()
+    startup_task: asyncio.Task | None = None
 
     async def run_german_data_processing():
         logger.info("Starting German funding_data processing job")
@@ -140,11 +253,28 @@ async def lifespan(app: FastAPI):
         logger.info("Starting EU embedding pipeline job")
         await eu_pipeline.manage_embeddings()
 
+    async def run_startup_pipeline() -> None:
+        jobs = [
+            ("German funding_data processing", run_german_data_processing),
+            ("EU funding_data processing", run_eu_data_processing),
+            ("German embedding pipeline", run_german_embedding_pipeline),
+            ("EU embedding pipeline", run_eu_embedding_pipeline),
+        ]
+        for name, job in jobs:
+            try:
+                await job()
+                logger.info("Startup job finished: %s", name)
+            except Exception:
+                # Keep API startup resilient even if upstream data/API is slow or unavailable.
+                logger.exception("Startup job failed: %s", name)
+
     # ---------- RUN ON STARTUP ----------
-    await run_german_data_processing()
-    await run_eu_data_processing()
-    await run_german_embedding_pipeline()
-    await run_eu_embedding_pipeline()
+    if RUN_STARTUP_PIPELINES_SYNC:
+        logger.info("Running startup pipelines synchronously")
+        await run_startup_pipeline()
+    else:
+        logger.info("Running startup pipelines in background task")
+        startup_task = asyncio.create_task(run_startup_pipeline())
 
     # ---------- SCHEDULE PERIODIC JOBS ----------
     def schedule_german_data_processing():
@@ -192,12 +322,16 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    if startup_task is not None and not startup_task.done():
+        startup_task.cancel()
+
     logger.info("Shutting down scheduler")
     scheduler.shutdown(wait=False)
 
 
 scheduler = AsyncIOScheduler()
 app = FastAPI(lifespan=lifespan)
+taxonomy_route = app.get if hasattr(app, "get") else app.post
 
 # Initialize services
 embedding_service = EmbeddingService(tokenizer=TOKENIZER)
@@ -224,3 +358,9 @@ async def search_projects(request: Request) -> Dict[str, Any]:
 async def search_eu_projects(request: Request) -> Dict[str, Any]:
     """Search EU funding projects."""
     return await _search_collection(request, eu_qdrant_manager)
+
+
+@taxonomy_route("/v1/vocab/german")
+async def get_german_taxonomy() -> Dict[str, Any]:
+    """Return the current German taxonomy contract artifact."""
+    return _load_taxonomy(GERMAN_TAXONOMY_FILE_PATH)

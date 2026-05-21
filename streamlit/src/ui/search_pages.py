@@ -1,17 +1,19 @@
 import os
+import logging
 from abc import ABC, abstractmethod
 from typing import Any
 
 import streamlit as st
 
 from utils import (
-    aggregate_chunks,
-    apply_filters,
-    read_extracted_filter_options,
+    fetch_german_taxonomy,
     render_eu_project_result,
     render_german_project_result,
     search_projects,
+    _friendly_search_error,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class BaseFundingSearchPage(ABC):
@@ -55,19 +57,12 @@ class BaseFundingSearchPage(ABC):
         return "No projects found."
 
     @abstractmethod
-    def render_sidebar(self) -> tuple[int, dict[str, Any]]:
+    def render_sidebar(self) -> tuple[float, int, dict[str, Any]]:
         pass
 
     @abstractmethod
     def render_result(self, result: dict[str, Any]) -> None:
         pass
-
-    def process_results(
-        self,
-        results: list[dict[str, Any]],
-        context: dict[str, Any],
-    ) -> list[dict[str, Any]]:
-        return results
 
     def render(self) -> None:
         st.set_page_config(
@@ -83,19 +78,19 @@ class BaseFundingSearchPage(ABC):
             placeholder="Start typing...",
             key=self.query_key,
         )
-        search_limit, context = self.render_sidebar()
+        semantic_weight, search_limit, context = self.render_sidebar()
 
         if st.button("Search", key=self.search_button_key) and query:
             try:
-                matches = search_projects(
+                results = search_projects(
                     fastapi_url=self.fastapi_url,
                     model=self.model,
                     query=query,
                     search_limit=search_limit,
+                    semantic_weight=semantic_weight,
                     endpoint=self.search_endpoint,
+                    filters=context.get("filters"),
                 )
-                results = aggregate_chunks(matches)
-                results = self.process_results(results, context)
 
                 if results:
                     st.success(f"Found {len(results)} matching projects")
@@ -104,10 +99,18 @@ class BaseFundingSearchPage(ABC):
                 else:
                     st.warning(self.no_results_message)
             except Exception as error:
-                st.error(f"Error: {error}")
+                logger.exception("Search request failed: %s", error)
+                st.error(_friendly_search_error(error))
 
 
 class GermanFundingSearchPage(BaseFundingSearchPage):
+    FIELD_CONFIG = [
+        ("funding_location", "Funding location", "federal_locations"),
+        ("funding_type", "Type of funding", "federal_funding_type"),
+        ("eligible_applicants", "Eligible applicants", "federal_eligible"),
+        ("funding_area", "Funding area", "federal_funding_area"),
+    ]
+
     @property
     def page_title(self) -> str:
         return "Federal Funding Database"
@@ -128,33 +131,44 @@ class GermanFundingSearchPage(BaseFundingSearchPage):
     def no_results_message(self) -> str:
         return "No projects match your selected filters."
 
-    def render_sidebar(self) -> tuple[int, dict[str, Any]]:
-        location_options = read_extracted_filter_options("data/german_funding_location.txt")
-        funding_type_options = read_extracted_filter_options("data/german_funding_type.txt")
-        eligible_options = read_extracted_filter_options("data/german_eligible_applicants.txt")
-        funding_area_options = read_extracted_filter_options("data/german_funding_area.txt")
+    def render_sidebar(self) -> tuple[float, int, dict[str, Any]]:
+        options_by_field: dict[str, list[str]] = {}
+        labels_by_field: dict[str, dict[str, str]] = {}
+        taxonomy_columns: dict[str, Any] = {}
+        taxonomy_error: Exception | None = None
+
+        try:
+            taxonomy = fetch_german_taxonomy(self.fastapi_url)
+            raw_columns = taxonomy.get("columns", {})
+            if isinstance(raw_columns, dict):
+                taxonomy_columns = raw_columns
+        except Exception as error:
+            taxonomy_error = error
+            taxonomy_columns = {}
+
+        for field, _, _ in self.FIELD_CONFIG:
+            entries = taxonomy_columns.get(field, []) if isinstance(taxonomy_columns, dict) else []
+            options_by_field[field] = [entry.get("key", "") for entry in entries if entry.get("key")]
+            labels_by_field[field] = {
+                entry.get("key", ""): entry.get("canonical", entry.get("key", ""))
+                for entry in entries
+                if entry.get("key")
+            }
 
         st.sidebar.header("Filter Options")
-        selected_locations = st.sidebar.multiselect(
-            "Funding location",
-            location_options,
-            key="federal_locations",
-        )
-        selected_funding_type = st.sidebar.multiselect(
-            "Type of funding",
-            funding_type_options,
-            key="federal_funding_type",
-        )
-        selected_eligible = st.sidebar.multiselect(
-            "Eligible applicants",
-            eligible_options,
-            key="federal_eligible",
-        )
-        selected_funding_area = st.sidebar.multiselect(
-            "Funding area",
-            funding_area_options,
-            key="federal_funding_area",
-        )
+        selected_filters: dict[str, list[str]] = {}
+        for field, label, widget_key in self.FIELD_CONFIG:
+            selected_filters[field] = st.sidebar.multiselect(
+                label,
+                options_by_field.get(field, []),
+                format_func=lambda key, f=field: labels_by_field.get(f, {}).get(key, key),
+                key=widget_key,
+            )
+
+        if taxonomy_error is not None:
+            logger.warning("Failed to fetch German taxonomy: %s", taxonomy_error)
+            st.sidebar.warning("Filters are unavailable (taxonomy could not be loaded).")
+
         search_limit = st.sidebar.number_input(
             "Search limit",
             min_value=5,
@@ -163,23 +177,23 @@ class GermanFundingSearchPage(BaseFundingSearchPage):
             step=5,
             key=self.search_limit_key,
         )
+        semantic_weight = st.sidebar.slider(
+            "Semantic vs Keyword Weight",
+            min_value=0.0,
+            max_value=1.0,
+            value=0.7,
+            step=0.05,
+            key=f"{self.search_button_key}_semantic_weight",
+            help="0 = pure keyword search, 1 = pure semantic search.",
+        )
+
         drop_na = st.sidebar.checkbox("Drop N/A", value=True, key="federal_drop_na")
 
         filters = {
-            "locations": selected_locations,
-            "funding_type": selected_funding_type,
-            "eligible": selected_eligible,
-            "funding_area": selected_funding_area,
+            **selected_filters,
             "drop_na": drop_na,
         }
-        return int(search_limit), {"filters": filters}
-
-    def process_results(
-        self,
-        results: list[dict[str, Any]],
-        context: dict[str, Any],
-    ) -> list[dict[str, Any]]:
-        return apply_filters(results, context["filters"])
+        return float(semantic_weight), int(search_limit), {"filters": filters}
 
     def render_result(self, result: dict[str, Any]) -> None:
         render_german_project_result(result)
@@ -202,7 +216,7 @@ class EuFundingSearchPage(BaseFundingSearchPage):
     def query_key(self) -> str:
         return "eu_query"
 
-    def render_sidebar(self) -> tuple[int, dict[str, Any]]:
+    def render_sidebar(self) -> tuple[float, int, dict[str, Any]]:
         search_limit = st.sidebar.number_input(
             "Search limit",
             min_value=5,
@@ -211,7 +225,17 @@ class EuFundingSearchPage(BaseFundingSearchPage):
             step=5,
             key=self.search_limit_key,
         )
-        return int(search_limit), {}
+        semantic_weight = st.sidebar.slider(
+            "Semantic vs Keyword Weight",
+            min_value=0.0,
+            max_value=1.0,
+            value=0.7,
+            step=0.05,
+            key=f"{self.search_button_key}_semantic_weight",
+            help="0 = pure keyword search, 1 = pure semantic search.",
+        )
+
+        return float(semantic_weight), int(search_limit), {}
 
     def render_result(self, result: dict[str, Any]) -> None:
         render_eu_project_result(result)

@@ -61,10 +61,11 @@ With SeFuSe, you can run your **entire setup locally** - your data remains on yo
 ## Docker Compose Installation & Configuration
 
 SeFuSe is designed to run as a fully self-contained, local AI system using **Docker Compose**.
-It orchestrates four services:
+It orchestrates five services:
 
 | Service       | Role                                                   |
 | ------------- | ------------------------------------------------------ |
+| **PostgreSQL**| User/authentication database                           |
 | **Qdrant**    | Vector database for storing and searching embeddings   |
 | **Ollama**    | Local LLM runtime for generating embeddings            |
 | **FastAPI**   | Backend API for data processing, embedding, and search |
@@ -194,16 +195,40 @@ streamlit:
   environment:
     - MODEL=nomic-embed-text
     - FASTAPI_URL=http://fastapi:8000
+    - DB_HOST=postgres
+    - DB_PORT=5432
+    - DB_NAME=${POSTGRES_DB}
+    - DB_USER=${POSTGRES_USER}
+    - DB_PASSWORD=${POSTGRES_PASSWORD}
+    - AUTH_ENABLED=${AUTH_ENABLED}
+    - ADMIN_USERNAME=${ADMIN_USERNAME}
+    - ADMIN_PASSWORD=${ADMIN_PASSWORD}
 ```
 
 Streamlit provides the **user interface** where users enter project descriptions and view matching funding programs.
 
 #### Environment variables
 
-| Variable      | Purpose                             |
-| ------------- | ----------------------------------- |
-| `MODEL`       | Must match FastAPI and Ollama       |
-| `FASTAPI_URL` | Internal URL of the FastAPI service |
+| Variable         | Purpose                                           |
+| ---------------- | ------------------------------------------------- |
+| `MODEL`          | Must match FastAPI and Ollama                     |
+| `FASTAPI_URL`    | Internal URL of the FastAPI service               |
+| `DB_*`           | PostgreSQL connection for login and user storage  |
+| `AUTH_ENABLED`   | Enables/disables Streamlit authentication globally |
+| `ADMIN_USERNAME` | Predefined admin account (created at app startup) |
+| `ADMIN_PASSWORD` | Admin password (stored as bcrypt hash in DB)      |
+
+---
+
+## Authentication
+
+SeFuSe uses a simple username/password login for Streamlit access.
+
+- No self-registration is available.
+- All pages require successful login.
+- Passwords are stored as bcrypt hashes in PostgreSQL.
+- An admin account is created from `.env` values and can manage users in the **Admin User Management** page.
+- Set `AUTH_ENABLED=false` to bypass authentication entirely.
 
 ---
 

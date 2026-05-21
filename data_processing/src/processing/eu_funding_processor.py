@@ -4,12 +4,11 @@ from datetime import datetime
 import polars as pl
 
 from .cleaner import HtmlCleaner
-
-
-EU_STATUS_FORTHCOMING = "31094501"
-EU_STATUS_OPEN = "31094502"
-EU_STATUS_CLOSED = "31094503"
-EU_ALLOWED_STATUS_CODES = {EU_STATUS_FORTHCOMING, EU_STATUS_OPEN, EU_STATUS_CLOSED}
+from data_processing.config import (
+    EU_STATUS_FORTHCOMING,
+    EU_STATUS_OPEN,
+    EU_ACTIVE_STATUS_CODES,
+)
 
 UUID_SOURCE_COLUMN = "uuid_source_call_id"
 MIN_DESCRIPTION_LENGTH = 25
@@ -61,7 +60,6 @@ class EuFundingProcessor:
 
     @staticmethod
     def _parse_status(status_code: str) -> bool:
-        EU_ACTIVE_STATUS_CODES = {EU_STATUS_FORTHCOMING, EU_STATUS_OPEN}
         return status_code not in EU_ACTIVE_STATUS_CODES
 
     @staticmethod
@@ -121,7 +119,7 @@ class EuFundingProcessor:
 
     @staticmethod
     def _is_allowed_status(status_code: str | None) -> bool:
-        return status_code in EU_ALLOWED_STATUS_CODES
+        return status_code in EU_ACTIVE_STATUS_CODES
 
     def _should_keep_item(
         self,

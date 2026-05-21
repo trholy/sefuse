@@ -1,78 +1,27 @@
 import polars as pl
 from pathlib import Path
-import unicodedata
-import re
+
+from shared.taxonomy_contract import (
+    is_invalid_taxonomy_value,
+    normalize_taxonomy_key,
+    score_taxonomy_display_value,
+)
 
 
 class UniqueValueExtractor:
     FALLBACK = "Unknown"
 
     def _normalize(self, value: str) -> str:
-        if value is None:
-            return ""
-
-        value = str(value).strip().lower()
-
-        # German umlauts
-        value = (
-            value.replace("ä", "ae")
-                 .replace("ö", "oe")
-                 .replace("ü", "ue")
-                 .replace("ß", "ss")
-        )
-
-        # Remove accents
-        value = unicodedata.normalize("NFKD", value)
-        value = "".join(c for c in value if not unicodedata.combining(c))
-
-        # Normalize separators
-        value = re.sub(r"[\s\-&/]+", "_", value)
-
-        # Remove non-word chars
-        value = re.sub(r"[^\w]", "", value)
-
-        return value.strip("_")
+        return normalize_taxonomy_key(value)
 
     def _is_invalid(self, value: str, key: str) -> bool:
         """
         Decide if something should go to fallback bucket
         """
-        if not key:
-            return True
-
-        v = str(value).strip().lower()
-
-        # obvious null-like values
-        if v in {"none", "nan", "", "null"}:
-            return True
-
-        # too short or meaningless
-        if len(key) <= 2:
-            return True
-
-        return False
+        return is_invalid_taxonomy_value(value, key)
 
     def _score(self, value: str) -> int:
-        if value is None:
-            return -1
-
-        v = str(value)
-
-        score = 0
-
-        if any(c.isupper() for c in v):
-            score += 2
-
-        if " " in v:
-            score += 2
-
-        if "_" in v:
-            score -= 1
-
-        if v.islower():
-            score -= 1
-
-        return score
+        return score_taxonomy_display_value(value)
 
     def extract(self, df: pl.DataFrame, column: str) -> list[str]:
         dtype = df.schema[column]

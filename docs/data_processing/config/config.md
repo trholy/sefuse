@@ -26,6 +26,7 @@ Important fields:
 - `raw_parquet`: extracted parquet file path.
 - `cleaned_parquet`: cleaned output path.
 - `uuid_parquet`: UUID-enriched output path.
+- `taxonomy_json`: taxonomy contract output path (`taxonomy_german.json`).
 
 ### `EuFundingConfig`
 
@@ -43,3 +44,4 @@ Important fields:
 - `raw_json`: cached raw API response file.
 - `cleaned_parquet`: cleaned output path.
 - `uuid_parquet`: UUID-enriched output path.
+- `taxonomy_json`: taxonomy contract output path (`taxonomy_eu.json`).

@@ -1,6 +1,6 @@
 # `streamlit.utils.utils`
 
-Provides shared helper functions for the Streamlit frontend, including API calls, local filter loading, result aggregation, filtering, and result rendering.
+Provides shared helper functions for the Streamlit frontend, including API calls, taxonomy-aware filtering, result aggregation, and result rendering.
 
 ## General Helpers
 
@@ -14,35 +14,38 @@ Converts scalars and iterable values into a list of strings.
 
 ### `read_extracted_filter_options(file_path, retries=10, delay=1)`
 
-Reads filter values from a text file with retry and exponential backoff when the file is temporarily unavailable.
+Reads values from a text file with retry/backoff. This helper remains available for local file use-cases.
 
-## Search and Filtering
+## Taxonomy and Search
+
+### `fetch_german_taxonomy(fastapi_url, timeout=30)`
+
+Fetches `GET /v1/vocab/german` and returns a safe dictionary structure containing taxonomy columns.
+
+### `search_projects(fastapi_url, model, query, search_limit, endpoint, filters=None, timeout=30)`
+
+Sends a search request to FastAPI and returns the `matches` list from the JSON response.
 
 ### `apply_filters(matches, filters)`
 
-Applies frontend filters to German funding results.
+Applies key-based filters on German results using `*_keys` fields:
 
-Supported filters:
+- `funding_location_keys`
+- `funding_type_keys`
+- `eligible_applicants_keys`
+- `funding_area_keys`
 
-- `locations`
-- `funding_type`
-- `eligible`
-- `funding_area`
-- `drop_na`
+Also supports the `drop_na` toggle to hide entries where both short and full descriptions are `"N/A"`.
 
 ### `aggregate_chunks(matches)`
 
-Merges multiple chunk-level results belonging to the same project and keeps the best `matching_score`.
-
-### `search_projects(fastapi_url, model, query, search_limit, semantic_weight, endpoint, timeout=30)`
-
-Sends a search request to the FastAPI backend and returns the `matches` list from the JSON response.
+Merges chunk-level matches by project ID and keeps the maximum `matching_score`.
 
 ## Rendering Helpers
 
 ### `render_german_project_result(result)`
 
-Renders one German funding result card with title, descriptions, dates, filter metadata, and score.
+Renders one German funding result card with title, descriptions, dates, category metadata, and score.
 
 ### `_parse_datetime(value)`
 

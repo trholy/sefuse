@@ -9,7 +9,6 @@ import polars as pl
 from transformers import AutoTokenizer
 
 from .qdrant_utils import QdrantManager
-from data_processing.german_funding_main import run_german_funding_pipeline
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -19,14 +18,6 @@ OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
 EMBED_MODEL = os.getenv('MODEL', 'nomic-embed-text')
 TOKENIZER = os.getenv('TOKENIZER', 'nomic-ai/nomic-embed-text-v1.5')
 OLLAMA_EMBED_TIMEOUT_SECONDS = float(os.getenv("OLLAMA_EMBED_TIMEOUT_SECONDS", "120"))
-
-def download_job():
-    try:
-        logger.info("Triggering data processing pipeline...")
-        run_german_funding_pipeline()
-        logger.info(">>> Pipeline finished successfully")
-    except Exception as e:
-        logger.info(f"Pipeline failed: {e}")
 
 
 def chunked(iterable, size: int):
@@ -175,23 +166,25 @@ class Pipeline:
             existing_ids: set[str]
     ) -> list[str]:
         """
-        Delete projects from Qdrant that are marked as deleted and exist in
-         the current database.
+        Delete from Qdrant any project whose ID is present in Qdrant but
+         absent from the active set in the Parquet file.
 
-        Identifies rows in the DataFrame where deleted is True, intersects
-         their UUIDs with existing IDs, and removes any matching projects from
-         Qdrant while logging the deletion count.
+        This catches both rows explicitly marked as deleted and rows that have
+         simply disappeared from the data source (e.g. EU calls that fall
+         outside the current pagination window), ensuring no stale data
+         accumulates in the vector store.
         """
-        deleted_rows = df.filter(pl.col("deleted") == True)
-        deleted_ids = set(deleted_rows["uuid"].to_list())
-
-        ids_to_delete = list(existing_ids & deleted_ids)
+        active_ids = set(
+            df.filter(pl.col("deleted") == False)["uuid"].to_list()
+        )
+        ids_to_delete = list(existing_ids - active_ids)
 
         if not ids_to_delete:
             return []
 
         logger.info(
-            f"Deleting {len(ids_to_delete)} deleted projects from Qdrant")
+            f"Deleting {len(ids_to_delete)} stale projects from Qdrant"
+        )
         self.qdrant.delete_projects(ids_to_delete)
 
         return ids_to_delete

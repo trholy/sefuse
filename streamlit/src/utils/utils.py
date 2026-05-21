@@ -1,4 +1,3 @@
-import time
 from typing import List, Any, Union, Dict
 import logging
 from datetime import datetime
@@ -23,110 +22,51 @@ def safe_join(
     return str(value)
 
 
-def normalize_list(value: Any) -> List[str]:
-    """Ensure the value is always a list of strings."""
-    if value is None:
-        return []
-    if isinstance(value, str):
-        return [value]
-    if isinstance(value, (list, tuple, set)):
-        return [str(v) for v in value if v is not None]
-    return [str(value)]
-
-
-def read_extracted_filter_options(
-        file_path: str,
-        retries: int = 10,
-        delay: float = 1
-) -> List[str]:
-    """Read lines from a file with retry logic."""
-    attempt = 0
-    while True:
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                return [line.strip() for line in f if line.strip()]
-        except FileNotFoundError as e:
-            attempt += 1
-            logger.warning(f"File not found (attempt {attempt}): {file_path}")
-            if attempt >= retries:
-                raise
-            time.sleep(delay)
-            delay = min(delay * 2, 30)
-
-def apply_filters(
-        matches: List[Dict],
-        filters: Dict[str, List[str]]
-) -> List[Dict]:
-    """Filter the API results according to sidebar selections."""
-    filtered = []
-    for r in matches:
-        funding_location = normalize_list(r.get("funding_location"))
-        funding_type = normalize_list(r.get("funding_type"))
-        eligible_applicants = normalize_list(r.get("eligible_applicants"))
-        funding_area = normalize_list(r.get("funding_area"))
-        short_description = r.get("project_short_description")
-        full_description = r.get("project_full_description")
-
-        if filters["locations"] and not any(
-                loc in funding_location for loc in filters["locations"]):
-            continue
-        if filters["funding_type"] and not any(
-                ft in funding_type for ft in filters["funding_type"]):
-            continue
-        if filters["eligible"] and not any(
-                el in eligible_applicants for el in filters["eligible"]):
-            continue
-        if filters["funding_area"] and not any(
-                area in funding_area for area in filters["funding_area"]):
-            continue
-        if filters["drop_na"] and "N/A" == short_description == full_description:
-            continue
-        filtered.append(r)
-    return filtered
-
-
-def aggregate_chunks(matches: List[Dict]) -> List[Dict]:
-    """
-    Aggregate multiple chunk results per project into a single entry.
-    Keeps metadata from the first occurrence and uses the max score among chunks.
-    """
-    aggregated: Dict[str, Dict] = {}
-    for r in matches:
-        project_id = r.get("project_id")
-        if not project_id:
-            continue
-        if project_id not in aggregated:
-            aggregated[project_id] = r.copy()
-        else:
-            # Update score if this chunk has higher similarity
-            aggregated[project_id]["matching_score"] = max(
-                aggregated[project_id].get("matching_score", 0),
-                r.get("matching_score", 0)
-            )
-    return list(aggregated.values())
-
-
 def search_projects(
         fastapi_url: str,
         model: str,
         query: str,
         search_limit: int,
         endpoint: str,
+        semantic_weight: float = 0.7,
+        filters: Dict[str, List[str]] | None = None,
         timeout: int = 30
 ) -> List[Dict]:
     """Run semantic search request against the backend and return matches."""
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": query}],
+        "limit": search_limit,
+        "semantic_weight": semantic_weight,
+    }
+    if filters:
+        payload["filters"] = filters
+
     response = requests.post(
         f"{fastapi_url}{endpoint}",
-        json={
-            "model": model,
-            "messages": [{"role": "user", "content": query}],
-            "limit": search_limit
-        },
+        json=payload,
         timeout=timeout
     )
     response.raise_for_status()
     data = response.json()
     return data.get("matches", [])
+
+
+def fetch_german_taxonomy(
+        fastapi_url: str,
+        timeout: int = 30
+) -> Dict[str, Any]:
+    response = requests.get(
+        f"{fastapi_url}/v1/vocab/german",
+        timeout=timeout,
+    )
+    response.raise_for_status()
+    data = response.json()
+    if not isinstance(data, dict):
+        return {"columns": {}}
+    if "columns" not in data or not isinstance(data["columns"], dict):
+        data["columns"] = {}
+    return data
 
 
 def render_german_project_result(result: Dict) -> None:
@@ -205,3 +145,21 @@ def render_eu_project_result(result: Dict) -> None:
         )
 
     st.write(f"**Score:** {result.get('matching_score', 0) * 100:.1f} %")
+
+
+def _friendly_search_error(error: Exception) -> str:
+    """Convert backend/search errors into user-friendly UI text."""
+    if isinstance(error, (requests.exceptions.ConnectionError, ConnectionRefusedError)):
+        return (
+            "Search service is still starting up."
+            " Data download or embedding may still be in progress. "
+            "Please wait a moment and try again."
+        )
+    if isinstance(error, requests.exceptions.Timeout):
+        return (
+            "The search request is taking longer than expected."
+            " Please try again in a moment."
+        )
+    if isinstance(error, requests.exceptions.HTTPError):
+        return "Search service returned an unexpected response. Please try again."
+    return "Something went wrong while searching. Please try again."

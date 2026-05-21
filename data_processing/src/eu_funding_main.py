@@ -25,7 +25,6 @@ def _load_or_fetch_open_calls(
     try:
         calls = fetcher.fetch_open_and_forthcoming_calls(
             page_size=config.page_size,
-            max_pages=config.max_pages,
         )
         fetcher.save(calls, config.raw_json)
         return calls
@@ -72,6 +71,8 @@ def run_eu_funding_pipeline() -> None:
         export_columns=["funding_area"],
         export_file_prefix="eu_",
         columns_to_drop_before_store=[UUID_SOURCE_COLUMN],
+        taxonomy_path=config.taxonomy_json,
+        taxonomy_domain="eu",
     )
 
 if __name__ == "__main__":
