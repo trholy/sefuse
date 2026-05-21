@@ -86,6 +86,7 @@ services:
       - OLLAMA_EMBED_TIMEOUT_SECONDS=120
       - VECTOR_DB_HOST=qdrant
       - QDRANT_PORT=6333
+      - RUN_STARTUP_PIPELINES_SYNC=false
 
   streamlit:
     build:

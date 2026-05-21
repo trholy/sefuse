@@ -28,6 +28,7 @@ CRON_TRIGGER_GERMAN_DATA_PROCESSING = int(os.getenv("CRON_TRIGGER_GERMAN_DATA_PR
 CRON_TRIGGER_GERMAN_EMBEDDING = int(os.getenv("CRON_TRIGGER_GERMAN_EMBEDDING", "3"))
 CRON_TRIGGER_EU_DATA_PROCESSING = int(os.getenv("CRON_TRIGGER_EU_DATA_PROCESSING", "1"))
 CRON_TRIGGER_EU_EMBEDDING = int( os.getenv("CRON_TRIGGER_EU_EMBEDDING", "4"))
+RUN_STARTUP_PIPELINES_SYNC = os.getenv("RUN_STARTUP_PIPELINES_SYNC", "false",).strip().lower() in {"1", "true", "yes", "on"}
 GERMAN_COLLECTION_NAME = os.getenv("GERMAN_COLLECTION_NAME", "fundings_german")
 EU_COLLECTION_NAME = os.getenv("EU_COLLECTION_NAME", "fundings_eu")
 GERMAN_EXTRACTED_FILE_PATH = os.getenv(
@@ -215,6 +216,7 @@ def _load_taxonomy(path: str) -> dict[str, Any]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     loop = asyncio.get_running_loop()
+    startup_task: asyncio.Task | None = None
 
     async def run_german_data_processing():
         logger.info("Starting German funding_data processing job")
@@ -232,11 +234,28 @@ async def lifespan(app: FastAPI):
         logger.info("Starting EU embedding pipeline job")
         await eu_pipeline.manage_embeddings()
 
+    async def run_startup_pipeline() -> None:
+        jobs = [
+            ("German funding_data processing", run_german_data_processing),
+            ("EU funding_data processing", run_eu_data_processing),
+            ("German embedding pipeline", run_german_embedding_pipeline),
+            ("EU embedding pipeline", run_eu_embedding_pipeline),
+        ]
+        for name, job in jobs:
+            try:
+                await job()
+                logger.info("Startup job finished: %s", name)
+            except Exception:
+                # Keep API startup resilient even if upstream data/API is slow or unavailable.
+                logger.exception("Startup job failed: %s", name)
+
     # ---------- RUN ON STARTUP ----------
-    await run_german_data_processing()
-    await run_eu_data_processing()
-    await run_german_embedding_pipeline()
-    await run_eu_embedding_pipeline()
+    if RUN_STARTUP_PIPELINES_SYNC:
+        logger.info("Running startup pipelines synchronously")
+        await run_startup_pipeline()
+    else:
+        logger.info("Running startup pipelines in background task")
+        startup_task = asyncio.create_task(run_startup_pipeline())
 
     # ---------- SCHEDULE PERIODIC JOBS ----------
     def schedule_german_data_processing():
@@ -283,6 +302,9 @@ async def lifespan(app: FastAPI):
     logger.info("Scheduler started")
 
     yield
+
+    if startup_task is not None and not startup_task.done():
+        startup_task.cancel()
 
     logger.info("Shutting down scheduler")
     scheduler.shutdown(wait=False)
