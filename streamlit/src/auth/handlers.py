@@ -1,6 +1,7 @@
 from functools import lru_cache
 
 import streamlit as st
+from psycopg2 import OperationalError
 
 from .config import AuthSettings, load_auth_settings
 from .constants import ROLE_USER
@@ -64,6 +65,21 @@ def bootstrap_auth_system() -> None:
     auth_service = _get_authentication_service()
     auth_service.bootstrap_admin_user()
     set_bootstrap_flag(True)
+
+
+def safe_bootstrap() -> None:
+    """Bootstrap auth and stop the page with a user-facing error on failure."""
+    try:
+        bootstrap_auth_system()
+    except OperationalError:
+        st.error(
+            "Could not connect to the authentication database."
+            " Please check Docker Compose and DB credentials."
+        )
+        st.stop()
+    except Exception as error:
+        st.error(f"Authentication initialization failed: {error}")
+        st.stop()
 
 
 def login_user(username: str, password: str) -> bool:

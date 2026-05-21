@@ -1,9 +1,8 @@
 import streamlit as st
-from psycopg2 import OperationalError
 
 from auth.constants import ROLE_ADMIN
 from auth.handlers import (
-    bootstrap_auth_system,
+    safe_bootstrap,
     create_user,
     delete_user,
     is_auth_enabled,
@@ -93,17 +92,7 @@ def _render_delete_user(deletable_usernames: list[str]) -> None:
     st.rerun()
 
 
-try:
-    bootstrap_auth_system()
-except OperationalError:
-    st.error(
-        "Could not connect to the authentication database."
-        " Please check Docker Compose and DB credentials."
-    )
-    st.stop()
-except Exception as error:
-    st.error(f"Authentication initialization failed: {error}")
-    st.stop()
+safe_bootstrap()
 
 if not is_auth_enabled():
     st.title("Admin User Management")

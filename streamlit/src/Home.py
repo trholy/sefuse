@@ -1,8 +1,7 @@
 import streamlit as st
-from psycopg2 import OperationalError
 
 from auth.handlers import (
-    bootstrap_auth_system,
+    safe_bootstrap,
     is_authenticated,
     is_auth_enabled,
     login_user,
@@ -62,17 +61,7 @@ def render_home_content() -> None:
     st.write(about_text)
 
 
-try:
-    bootstrap_auth_system()
-except OperationalError:
-    st.error(
-        "Could not connect to the authentication database."
-        " Please check Docker Compose and DB credentials."
-    )
-    st.stop()
-except Exception as error:
-    st.error(f"Authentication initialization failed: {error}")
-    st.stop()
+safe_bootstrap()
 
 if is_auth_enabled() and not is_authenticated():
     render_login_screen()
