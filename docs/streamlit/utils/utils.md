@@ -1,51 +1,38 @@
 # `streamlit.utils.utils`
 
-Provides shared helper functions for the Streamlit frontend, including API calls, taxonomy-aware filtering, result aggregation, and result rendering.
+Provides shared helper functions for the Streamlit frontend, including API calls, result rendering, and error handling.
+
+## Internal Helpers
+
+### `_api_headers()`
+
+Builds HTTP headers for internal FastAPI requests. Includes the `X-Internal-Token` header when the `INTERNAL_API_TOKEN` environment variable is set, allowing the FastAPI `InternalTokenMiddleware` to authenticate the caller.
 
 ## General Helpers
 
 ### `safe_join(value, sep=", ", default="N/A")`
 
-Joins list-like values into a display string and falls back to a default label for empty values.
-
-### `normalize_list(value)`
-
-Converts scalars and iterable values into a list of strings.
-
-### `read_extracted_filter_options(file_path, retries=10, delay=1)`
-
-Reads values from a text file with retry/backoff. This helper remains available for local file use-cases.
+Joins list-like values into a display string and falls back to a default label for empty or None values.
 
 ## Taxonomy and Search
 
 ### `fetch_german_taxonomy(fastapi_url, timeout=30)`
 
 Fetches `GET /v1/vocab/german` and returns a safe dictionary structure containing taxonomy columns.
+Result is cached by Streamlit for 300 seconds to avoid redundant API calls on every sidebar re-render.
 
-### `search_projects(fastapi_url, model, query, search_limit, endpoint, filters=None, timeout=30)`
+### `search_projects(fastapi_url, model, query, search_limit, endpoint, semantic_weight=0.7, filters=None, timeout=30)`
 
 Sends a search request to FastAPI and returns the `matches` list from the JSON response.
 
-### `apply_filters(matches, filters)`
-
-Applies key-based filters on German results using `*_keys` fields:
-
-- `funding_location_keys`
-- `funding_type_keys`
-- `eligible_applicants_keys`
-- `funding_area_keys`
-
-Also supports the `drop_na` toggle to hide entries where both short and full descriptions are `"N/A"`.
-
-### `aggregate_chunks(matches)`
-
-Merges chunk-level matches by project ID and keeps the maximum `matching_score`.
+- `semantic_weight`: hybrid search weight forwarded to the backend (0=keyword, 1=semantic).
+- `filters`: optional taxonomy filters and `drop_na` flag forwarded to the backend for server-side filtering.
 
 ## Rendering Helpers
 
 ### `render_german_project_result(result)`
 
-Renders one German funding result card with title, descriptions, dates, category metadata, and score.
+Renders one German funding result card with title, short/full descriptions, on-website and last-updated dates, funding type, location, area, eligible applicants, and score.
 
 ### `_parse_datetime(value)`
 
@@ -54,3 +41,7 @@ Parses a datetime-like value into a Python `datetime` object when possible.
 ### `render_eu_project_result(result)`
 
 Renders one EU funding result card with description, opening date, deadline, and score.
+
+### `_friendly_search_error(error)`
+
+Maps a search exception to a user-facing error message suitable for `st.error(...)`.

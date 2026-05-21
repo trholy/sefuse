@@ -7,7 +7,7 @@ Coordinates the EU funding ingestion flow from API retrieval through transformat
 - Builds `EuFundingConfig` from environment-backed defaults.
 - Fetches EU call data from the remote API, with cached-file fallback on request failures.
 - Transforms raw API payloads into the shared funding schema.
-- Runs shared cleaning, UUID generation, parquet persistence, and filter-value exports.
+- Runs shared cleaning, taxonomy canonicalization, UUID generation, and parquet persistence.
 
 ## Functions
 
@@ -28,11 +28,10 @@ Executes the end-to-end EU processing pipeline.
 Workflow:
 
 1. Create configuration and API fetcher instances.
-2. Load or fetch EU call data.
+2. Load or fetch EU call data (live API or cached JSON fallback).
 3. Transform raw records with `EuFundingProcessor`.
-4. Clean and enrich the dataset through `CommonDataPipeline`.
-5. Write cleaned and UUID-enriched parquet outputs.
-6. Export unique values for selected filter columns such as `funding_area`.
+4. Clean, canonicalize taxonomy, and generate UUIDs through `CommonDataPipeline`.
+5. Write cleaned and UUID-enriched parquet outputs and the `taxonomy_eu.json` artifact.
 
 ## External Dependencies
 
@@ -46,4 +45,4 @@ Workflow:
 - Cached raw JSON at the configured `raw_json` path.
 - Cleaned parquet file at `cleaned_parquet`.
 - UUID-enriched parquet file at `uuid_parquet`.
-- Text exports for configured filter columns in the data directory.
+- Taxonomy contract artifact at `taxonomy_json` (`taxonomy_eu.json`).

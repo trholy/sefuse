@@ -12,7 +12,21 @@ Builds canonical taxonomy mappings from dataframe values, canonicalizes category
 - Generate normalized `*_keys` columns.
 - Build and save taxonomy JSON artifacts with deterministic hash/version metadata.
 
-### Key Methods
+### Internal Methods
+
+#### `_build_column_mapping(df, column)`
+
+Builds a normalised-key-to-canonical-display mapping for one taxonomy column. Explodes list-typed columns, groups raw values by their normalised key, picks the best display name per key using `score_taxonomy_display_value`, and collects alias/count metadata for the taxonomy artifact. Returns a `(key_to_canonical, entries)` tuple.
+
+#### `_canonicalize_list_value(value, key_to_canonical)`
+
+Replaces raw taxonomy cell values (scalar, list, or `pl.Series`) with their canonical display names using the mapping from `_build_column_mapping`. Invalid or unrecognised values fall back to `TAXONOMY_FALLBACK_VALUE`. Duplicates are removed while preserving order.
+
+#### `_keys_for_value(value)`
+
+Converts raw taxonomy cell values (scalar, list, or `pl.Series`) to their normalised lookup keys via `normalize_taxonomy_key`. Duplicates are removed while preserving order.
+
+### Public Methods
 
 #### `canonicalize_dataframe(df, columns)`
 

@@ -31,6 +31,11 @@ def _read_int(name: str, default: int, minimum: int = 1) -> int:
 
 @dataclass(frozen=True)
 class AuthSettings:
+    """Immutable auth configuration resolved from environment variables.
+
+    All fields are populated by `load_auth_settings`; do not instantiate directly.
+    """
+
     enabled: bool
     db_host: str
     db_port: int
@@ -45,6 +50,15 @@ class AuthSettings:
 
 
 def load_auth_settings() -> AuthSettings:
+    """Read and validate auth configuration from environment variables.
+
+    Returns:
+        AuthSettings: Populated settings dataclass.
+
+    Raises:
+        ConfigurationError: If a required env var has an invalid boolean/integer value,
+            or if `BCRYPT_ROUNDS < 4`.
+    """
     return AuthSettings(
         enabled=_read_bool("AUTH_ENABLED", True),
         db_host=os.getenv("DB_HOST", "postgres"),

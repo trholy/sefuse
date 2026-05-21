@@ -15,6 +15,24 @@ logger = logging.getLogger(__name__)
 
 
 class EuFundingFetcher:
+    """Paginates the EU SEDIA search API and collects open/forthcoming English-language calls.
+
+    Only OPEN and FORTHCOMING calls are requested; CLOSED calls are excluded at the query
+    level to avoid unbounded pagination. Non-English results are dropped client-side.
+
+    Args:
+        api_url (str): Base URL of the SEDIA search endpoint.
+        api_key (str): API key passed as the `apiKey` query parameter.
+        timeout_seconds (float, default=30): HTTP request timeout in seconds.
+        page_delay_seconds (float, default=0.2): Sleep between paginated requests
+            to avoid rate-limiting.
+
+    Example:
+        fetcher = EuFundingFetcher(api_url="https://...", api_key="SEDIA")
+        calls = fetcher.fetch_open_and_forthcoming_calls(page_size=50)
+        EuFundingFetcher.save(calls, Path("data/eu_open_calls.json"))
+    """
+
     def __init__(
         self,
         api_url: str,
@@ -142,6 +160,16 @@ class EuFundingFetcher:
         self,
         page_size: int = 50,
     ) -> list[dict]:
+        """Fetch all open and forthcoming English EU calls by paginating the API.
+
+        Stops when a page returns no results.
+
+        Args:
+            page_size (int, default=50): Number of results to request per API page.
+
+        Returns:
+            list[dict]: Normalised call records filtered to OPEN/FORTHCOMING + English.
+        """
         results: list[dict] = []
         page = 1
 
@@ -202,10 +230,25 @@ class EuFundingFetcher:
 
     @staticmethod
     def load(path: Path) -> list[dict]:
+        """Load previously saved calls from a JSON file (cache fallback).
+
+        Args:
+            path (Path): Path to the JSON file written by `save`.
+
+        Returns:
+            list[dict]: Deserialized call records.
+        """
         return json.loads(path.read_text(encoding="utf-8"))
 
     @staticmethod
     def save(calls: list[dict], target_path: Path) -> None:
+        """Persist call records as a pretty-printed JSON file.
+
+        Args:
+            calls (list[dict]): Records to serialise.
+            target_path (Path): Destination file path; parent directories are created
+                automatically.
+        """
         target_path.parent.mkdir(parents=True, exist_ok=True)
         target_path.write_text(
             json.dumps(calls, ensure_ascii=False, indent=2),

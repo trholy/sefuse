@@ -5,7 +5,7 @@ Fetches EU funding calls from the public search API and normalizes raw response 
 ## Module Constants
 
 - `EU_STATUS_FORTHCOMING`, `EU_STATUS_OPEN`, `EU_STATUS_CLOSED`: supported EU call status codes.
-- `EU_ALLOWED_STATUS_CODES`: allowed statuses during fetch-time filtering.
+- `EU_ACTIVE_STATUS_CODES`: allowed statuses during fetch-time filtering.
 
 ## Class `EuFundingFetcher`
 
@@ -26,14 +26,14 @@ Fetches EU funding calls from the public search API and normalizes raw response 
 - `_is_allowed_status(status_code)`: validates supported status codes.
 - `_fetch_page(page_number, page_size)`: performs one HTTP POST request against the EU search endpoint.
 
-### `fetch_open_and_forthcoming_calls(page_size=50, max_pages=100)`
+### `fetch_open_and_forthcoming_calls(page_size=50)`
 
 Retrieves paginated EU call records and normalizes the fields consumed later by `EuFundingProcessor`.
 
 #### Workflow
 
 1. Request one API page at a time.
-2. Stop when an empty page is returned or `max_pages` is reached.
+2. Stop when an empty page is returned.
 3. Filter out unsupported statuses and non-English items.
 4. Build simplified call dictionaries with identifiers, titles, dates, summaries, keywords, and URLs.
 5. Log per-page keep/drop statistics.

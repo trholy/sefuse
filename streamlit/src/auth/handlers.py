@@ -52,10 +52,15 @@ def _get_user_management_service() -> UserManagementService:
 
 
 def is_auth_enabled() -> bool:
+    """Return True if authentication is enabled via the `AUTH_ENABLED` env var."""
     return _get_settings().enabled
 
 
 def bootstrap_auth_system() -> None:
+    """Initialise session state and create the admin user on first call per session.
+
+    No-op when auth is disabled or the bootstrap flag is already set.
+    """
     initialize_session_state()
     if not is_auth_enabled():
         return
@@ -83,6 +88,16 @@ def safe_bootstrap() -> None:
 
 
 def login_user(username: str, password: str) -> bool:
+    """Authenticate a user and write them into session state on success.
+
+    Args:
+        username (str): Raw username from the login form.
+        password (str): Plain-text password attempt.
+
+    Returns:
+        bool: True on successful login, False on invalid credentials.
+            Always returns True when auth is disabled.
+    """
     if not is_auth_enabled():
         return True
 
@@ -96,22 +111,26 @@ def login_user(username: str, password: str) -> bool:
 
 
 def logout_user() -> None:
+    """Clear authenticated user from session state (logout)."""
     clear_authenticated_user()
 
 
 def is_authenticated() -> bool:
+    """Return True if the current session has an authenticated user (or auth is disabled)."""
     if not is_auth_enabled():
         return True
     return session_is_authenticated()
 
 
 def is_admin() -> bool:
+    """Return True if the current session user has the admin role (or auth is disabled)."""
     if not is_auth_enabled():
         return True
     return session_is_admin()
 
 
 def require_login() -> None:
+    """Stop the Streamlit page with a login prompt if the user is not authenticated."""
     if not is_auth_enabled():
         return
     if is_authenticated():
@@ -122,6 +141,7 @@ def require_login() -> None:
 
 
 def require_admin() -> None:
+    """Stop the Streamlit page with an error if the user is not an admin."""
     if not is_auth_enabled():
         return
     require_login()
@@ -132,6 +152,7 @@ def require_admin() -> None:
 
 
 def render_logout_button() -> None:
+    """Render a sidebar logout button and username caption for authenticated users."""
     if not is_auth_enabled():
         return
     if not is_authenticated():
@@ -146,6 +167,11 @@ def render_logout_button() -> None:
 
 
 def list_users() -> list[dict]:
+    """Return all users as plain dicts for display in the admin page.
+
+    Returns:
+        list[dict]: Each dict contains id, username, role, is_active, created_at, updated_at.
+    """
     user_service = _get_user_management_service()
     users = user_service.list_users()
     return [
@@ -162,21 +188,47 @@ def list_users() -> list[dict]:
 
 
 def create_user(username: str, password: str, role: str = ROLE_USER) -> None:
+    """Create a new user via the authentication service.
+
+    Args:
+        username (str): Desired username.
+        password (str): Plain-text password.
+        role (str, default=ROLE_USER): Assigned role (`"user"` or `"admin"`).
+    """
     auth_service = _get_authentication_service()
     auth_service.create_user(username=username, password=password, role=role)
 
 
 def update_password(username: str, new_password: str) -> None:
+    """Change a user's password via the user management service.
+
+    Args:
+        username (str): Username of the account to update.
+        new_password (str): New plain-text password.
+    """
     user_service = _get_user_management_service()
     user_service.update_password(username=username, new_password=new_password)
 
 
 def delete_user(username: str) -> None:
+    """Delete a non-admin user via the user management service.
+
+    Args:
+        username (str): Username of the account to delete.
+    """
     user_service = _get_user_management_service()
     user_service.delete_user(username=username)
 
 
 def to_user_message(error: Exception) -> str:
+    """Convert a domain auth exception to a user-facing string.
+
+    Args:
+        error (Exception): Exception raised by an auth service method.
+
+    Returns:
+        str: Human-readable message suitable for `st.error(...)`.
+    """
     if isinstance(error, AuthenticationError):
         return "Invalid username or password."
     if isinstance(error, UserAlreadyExistsError):

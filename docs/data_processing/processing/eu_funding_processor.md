@@ -5,7 +5,7 @@ Transforms raw EU API call records into the shared funding dataframe schema.
 ## Module Constants
 
 - `EU_STATUS_FORTHCOMING`, `EU_STATUS_OPEN`, `EU_STATUS_CLOSED`: recognized EU status codes.
-- `EU_ALLOWED_STATUS_CODES`: set of status codes eligible for processing.
+- `EU_ACTIVE_STATUS_CODES`: set of status codes eligible for processing.
 - `UUID_SOURCE_COLUMN`: column name used as the deterministic UUID input.
 - `MIN_DESCRIPTION_LENGTH`: minimum description length required to keep a record.
 - `EU_COMMON_SCHEMA`: target Polars schema for the normalized EU dataset.

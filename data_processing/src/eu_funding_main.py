@@ -11,7 +11,6 @@ from data_processing.processing import (
     HtmlCleaner,
     UUID_SOURCE_COLUMN,
     UuidGenerator,
-    UniqueValueExtractor,
 )
 from data_processing.utils import EuFundingFetcher
 
@@ -22,6 +21,21 @@ def _load_or_fetch_open_calls(
     config: EuFundingConfig,
     fetcher: EuFundingFetcher,
 ) -> list[dict]:
+    """Fetch EU calls from the API, falling back to the cached JSON on network errors.
+
+    Saves freshly fetched calls to `config.raw_json` before returning them.
+    If the API request fails and no cache file exists, the exception is re-raised.
+
+    Args:
+        config (EuFundingConfig): Pipeline configuration with API settings and file paths.
+        fetcher (EuFundingFetcher): Configured fetcher instance.
+
+    Returns:
+        list[dict]: Open/forthcoming EU call records (live or cached).
+
+    Raises:
+        requests.RequestException: If the API is unreachable and no cache exists.
+    """
     try:
         calls = fetcher.fetch_open_and_forthcoming_calls(
             page_size=config.page_size,
@@ -40,6 +54,17 @@ def _load_or_fetch_open_calls(
 
 
 def run_eu_funding_pipeline() -> None:
+    """Fetch, process, and store the EU funding dataset end-to-end.
+
+    Orchestrates the full EU pipeline:
+    1. Fetches open/forthcoming calls via `EuFundingFetcher` (falls back to cache).
+    2. Transforms raw dicts to a typed DataFrame via `EuFundingProcessor`.
+    3. Runs `CommonDataPipeline.process_and_store` to clean, canonicalise the
+       `funding_area` taxonomy, assign UUIDs, and write the Parquet files plus
+       the taxonomy JSON to `EuFundingConfig.data_dir`.
+
+    Invoked by the FastAPI APScheduler cron job and on startup.
+    """
     config = EuFundingConfig()
 
     fetcher = EuFundingFetcher(
@@ -56,7 +81,6 @@ def run_eu_funding_pipeline() -> None:
 
     common_pipeline = CommonDataPipeline(
         cleaner=DataCleaner(HtmlCleaner()),
-        value_extractor=UniqueValueExtractor(),
         uuid_generator=UuidGenerator(
             namespace=uuid.UUID("12345678-1234-5678-1234-567812345678")
         ),

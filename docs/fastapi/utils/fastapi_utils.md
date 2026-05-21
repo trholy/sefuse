@@ -4,10 +4,6 @@ Implements shared embedding-pipeline logic for loading processed data, generatin
 
 ## Top-Level Helpers
 
-### `download_job()`
-
-Triggers the German data pipeline and logs success or failure.
-
 ### `chunked(iterable, size)`
 
 Yields fixed-size chunks from an iterable using `itertools.islice`.
@@ -58,11 +54,34 @@ High-level workflow for embedding maintenance:
 
 ### Internal Methods
 
-- `_load_and_normalize_data()`: reads parquet data and casts UUIDs to strings.
-- `_delete_removed_projects(df, existing_ids)`: removes deleted projects already stored in Qdrant.
-- `_get_new_active_rows(df, existing_ids)`: returns active records missing from the vector store.
-- `_embed_and_insert_rows(new_rows)`: loops through new records and processes each one.
-- `_process_single_project(client, description, metadata, project_id)`: chunks one description, generates embeddings, and stores them.
-- `_generate_embeddings(client, chunks)`: embeds all chunks and keeps successful results.
-- `_insert_project_embeddings(embeddings, metadata, project_id)`: writes one or more vectors for a project to Qdrant.
-- `_fetch_existing_ids()`: scrolls Qdrant to collect all stored point IDs.
+#### `_load_and_normalize_data()`
+
+Loads the Parquet file via `load_funding_data` and casts the `uuid` column to UTF-8 strings.
+
+#### `_delete_removed_projects(df, existing_ids)`
+
+Computes the set difference between Qdrant-stored IDs and currently active project IDs, then deletes stale entries from the collection.
+
+#### `_get_new_active_rows(df, existing_ids)`
+
+Filters the DataFrame to active (not deleted) rows whose UUIDs are not yet present in the Qdrant collection.
+
+#### `_embed_and_insert_rows(new_rows)`
+
+Iterates through new rows, calling `_process_single_project` for each one within a shared `httpx.AsyncClient` session.
+
+#### `_process_single_project(client, description, metadata, project_id)`
+
+Chunks one project description via `EmbeddingService.chunk_text`, generates embeddings for all chunks, and upserts the resulting points into Qdrant. Logs a warning and skips the project if no embeddings are generated.
+
+#### `_generate_embeddings(client, chunks)`
+
+Fetches dense embedding vectors for each text chunk from Ollama via `EmbeddingService.fetch_embedding`. Chunks that fail to embed are silently skipped.
+
+#### `_insert_project_embeddings(embeddings, metadata, project_id)`
+
+Writes one or more embedding vectors for a single project to Qdrant, replicating the metadata payload across all chunk points.
+
+#### `_fetch_existing_ids()`
+
+Scrolls through the entire Qdrant collection (256 points per page, no payload or vector data) and returns all stored point IDs. Returns an empty list if the scroll fails.

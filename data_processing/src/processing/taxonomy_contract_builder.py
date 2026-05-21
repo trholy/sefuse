@@ -18,6 +18,19 @@ from shared.taxonomy_contract import (
 
 
 class TaxonomyContractBuilder:
+    """Builds and serialises the taxonomy contract from a funding DataFrame.
+
+    Normalises raw taxonomy values (funding type, area, location, applicants) to
+    canonical display names, adds `*_keys` columns with normalised lookup keys,
+    and produces a versioned JSON artifact for the `/v1/vocab/german` endpoint.
+
+    Example:
+        builder = TaxonomyContractBuilder()
+        df, taxonomy_columns = builder.canonicalize_dataframe(df, ["funding_type"])
+        artifact = builder.build_taxonomy_artifact("german", taxonomy_columns)
+        builder.save_taxonomy_artifact(artifact, Path("data/taxonomy_german.json"))
+    """
+
     def _iter_values(self, df: pl.DataFrame, column: str) -> list[str]:
         dtype = df.schema[column]
         if dtype.base_type() == pl.List:
@@ -31,6 +44,21 @@ class TaxonomyContractBuilder:
         df: pl.DataFrame,
         column: str,
     ) -> tuple[dict[str, str], list[dict[str, object]]]:
+        """Build a normalised-key-to-canonical-display mapping for one taxonomy column.
+
+        Explodes list-typed columns, groups raw values by their normalised key,
+        picks the best display name per key using ``score_taxonomy_display_value``,
+        and collects alias/count metadata for the taxonomy artifact.
+
+        Args:
+            df (pl.DataFrame): Source DataFrame.
+            column (str): Name of the taxonomy column to process.
+
+        Returns:
+            tuple[dict[str, str], list[dict[str, object]]]: A mapping of
+                normalised key to canonical display name, and a sorted list of
+                entry dicts (key, canonical, aliases, count) for the artifact.
+        """
         values = self._iter_values(df, column)
         key_alias_counter: dict[str, Counter[str]] = defaultdict(Counter)
 
@@ -77,6 +105,20 @@ class TaxonomyContractBuilder:
         value: object,
         key_to_canonical: dict[str, str],
     ) -> list[str]:
+        """Replace raw taxonomy values with their canonical display names.
+
+        Handles scalar, list, and ``pl.Series`` inputs. Invalid or
+        unrecognised values fall back to ``TAXONOMY_FALLBACK_VALUE``.
+        Duplicates are removed while preserving order.
+
+        Args:
+            value (object): Raw cell value (scalar, list, ``pl.Series``, or None).
+            key_to_canonical (dict[str, str]): Normalised-key-to-canonical
+                mapping produced by ``_build_column_mapping``.
+
+        Returns:
+            list[str]: Deduplicated canonical display names.
+        """
         if value is None:
             return []
 
@@ -105,6 +147,17 @@ class TaxonomyContractBuilder:
 
     @staticmethod
     def _keys_for_value(value: object) -> list[str]:
+        """Convert raw taxonomy values to their normalised lookup keys.
+
+        Handles scalar, list, and ``pl.Series`` inputs. Duplicates are
+        removed while preserving order.
+
+        Args:
+            value (object): Raw cell value (scalar, list, ``pl.Series``, or None).
+
+        Returns:
+            list[str]: Deduplicated normalised taxonomy keys.
+        """
         if value is None:
             return []
 
@@ -131,6 +184,21 @@ class TaxonomyContractBuilder:
         df: pl.DataFrame,
         columns: list[str],
     ) -> tuple[pl.DataFrame, dict[str, list[dict[str, object]]]]:
+        """Normalise taxonomy columns in-place and return the updated DataFrame plus metadata.
+
+        For each column in `columns` the method:
+        - Maps raw values to canonical display names.
+        - Adds a `<column>_keys` column with normalised lookup keys.
+        - Collects entry metadata (key, canonical, aliases, count) for the artifact.
+
+        Args:
+            df (pl.DataFrame): DataFrame containing the taxonomy columns to process.
+            columns (list[str]): Names of columns to canonicalise (e.g. `["funding_type"]`).
+
+        Returns:
+            tuple[pl.DataFrame, dict]: Updated DataFrame and a mapping of column name
+                to its list of taxonomy entry dicts.
+        """
         taxonomy_columns: dict[str, list[dict[str, object]]] = {}
 
         for column in columns:
@@ -163,6 +231,17 @@ class TaxonomyContractBuilder:
         domain: str,
         columns: dict[str, list[dict[str, object]]],
     ) -> dict[str, object]:
+        """Build a versioned taxonomy artifact dict ready for JSON serialisation.
+
+        Computes a SHA-256 hash over the column data to produce a stable version string.
+
+        Args:
+            domain (str): Domain label, e.g. `"german"` or `"eu"`.
+            columns (dict): Mapping produced by `canonicalize_dataframe`.
+
+        Returns:
+            dict: Artifact with keys `domain`, `generated_at_utc`, `version`, `hash`, `columns`.
+        """
         generated_at = datetime.now(timezone.utc).isoformat()
 
         payload_for_hash = {
@@ -190,6 +269,13 @@ class TaxonomyContractBuilder:
         taxonomy: dict[str, object],
         target_path: Path,
     ) -> None:
+        """Serialise a taxonomy artifact to a JSON file.
+
+        Args:
+            taxonomy (dict): Artifact produced by `build_taxonomy_artifact`.
+            target_path (Path): Destination file path; parent directories are created
+                automatically.
+        """
         target_path.parent.mkdir(parents=True, exist_ok=True)
         target_path.write_text(
             json.dumps(taxonomy, ensure_ascii=False, indent=2),

@@ -10,7 +10,6 @@ from data_processing.processing import (
     GermanFundingProcessor,
     HtmlCleaner,
     UuidGenerator,
-    UniqueValueExtractor,
 )
 from data_processing.utils import FileDownloader, ZipExtractor
 
@@ -18,6 +17,18 @@ logger = logging.getLogger(__name__)
 
 
 def run_german_funding_pipeline() -> None:
+    """Download, extract, clean, and embed the German federal funding dataset.
+
+    Orchestrates the full pipeline:
+    1. Downloads the ZIP from `GermanFundingConfig.zip_url`.
+    2. Extracts `data.parquet` from the archive.
+    3. Renames date columns via `GermanFundingProcessor`.
+    4. Runs `CommonDataPipeline.process_and_store` to clean, canonicalise taxonomy,
+       assign UUIDs, and write both the cleaned and UUID Parquet files plus the
+       taxonomy JSON to `GermanFundingConfig.data_dir`.
+
+    Invoked by the FastAPI APScheduler cron job and on startup.
+    """
     logger.info("German pipeline: starting dataset download and processing")
     config = GermanFundingConfig()
 
@@ -40,7 +51,6 @@ def run_german_funding_pipeline() -> None:
 
     common_pipeline = CommonDataPipeline(
         cleaner=DataCleaner(HtmlCleaner()),
-        value_extractor=UniqueValueExtractor(),
         uuid_generator=UuidGenerator(
             namespace=uuid.UUID("12345678-1234-5678-1234-567812345678")
         ),

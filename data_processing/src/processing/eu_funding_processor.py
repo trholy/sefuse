@@ -47,6 +47,19 @@ EU_COMMON_SCHEMA = {
 
 
 class EuFundingProcessor:
+    """Transforms raw EU call dicts from the SEDIA API into a typed Polars DataFrame.
+
+    Filters out closed/non-English calls, normalises field types, and builds the
+    shared `EU_COMMON_SCHEMA` used by downstream pipeline steps.
+
+    Args:
+        html_cleaner (HtmlCleaner): Used to strip HTML from summary/description fields.
+
+    Example:
+        processor = EuFundingProcessor(html_cleaner=HtmlCleaner())
+        df = processor.transform(raw_calls)
+    """
+
     def __init__(self, html_cleaner: HtmlCleaner):
         self._html_cleaner = html_cleaner
 
@@ -140,6 +153,17 @@ class EuFundingProcessor:
         return True
 
     def transform(self, eu_calls: list[dict]) -> pl.DataFrame:
+        """Convert a list of raw EU call dicts into a cleaned, typed DataFrame.
+
+        Rows that fail status, description-length, or keyword checks are dropped.
+        Returns an empty DataFrame with `EU_COMMON_SCHEMA` if no rows survive.
+
+        Args:
+            eu_calls (list[dict]): Raw call records as returned by `EuFundingFetcher`.
+
+        Returns:
+            pl.DataFrame: Typed DataFrame conforming to `EU_COMMON_SCHEMA`.
+        """
         if not eu_calls:
             return pl.DataFrame(
                 schema=[(column, dtype) for column, dtype in EU_COMMON_SCHEMA.items()]

@@ -5,7 +5,6 @@ import polars as pl
 from .cleaner import DataCleaner
 from .taxonomy_contract_builder import TaxonomyContractBuilder
 from .uuid_generator import UuidGenerator
-from .value_extractor import UniqueValueExtractor
 
 
 DEFAULT_EXPORT_COLUMNS = [
@@ -17,15 +16,31 @@ DEFAULT_EXPORT_COLUMNS = [
 
 
 class CommonDataPipeline:
+    """Shared processing pipeline: clean → canonicalise taxonomy → assign UUIDs → save Parquet.
+
+    Used by both the German and EU funding pipelines to avoid code duplication.
+    Taxonomy canonicalisation is handled by `TaxonomyContractBuilder`; a default
+    instance is created if none is provided.
+
+    Args:
+        cleaner (DataCleaner): Cleans HTML and normalises string columns.
+        uuid_generator (UuidGenerator): Derives UUIDs from a source column.
+        taxonomy_builder (TaxonomyContractBuilder | None, default=None): Builds and
+            saves the taxonomy contract. A fresh instance is created when omitted.
+
+    Example:
+        pipeline = CommonDataPipeline(cleaner=DataCleaner(HtmlCleaner()), uuid_generator=gen)
+        pipeline.process_and_store(df, cleaned_path, uuid_path, source_column="id_hash",
+                                   data_dir=Path("data"), taxonomy_path=Path("data/taxonomy.json"))
+    """
+
     def __init__(
         self,
         cleaner: DataCleaner,
-        value_extractor: UniqueValueExtractor,
         uuid_generator: UuidGenerator,
         taxonomy_builder: TaxonomyContractBuilder | None = None,
     ):
         self._cleaner = cleaner
-        self._value_extractor = value_extractor
         self._uuid_generator = uuid_generator
         self._taxonomy_builder = taxonomy_builder or TaxonomyContractBuilder()
 
@@ -42,6 +57,28 @@ class CommonDataPipeline:
         columns_to_drop_before_store: list[str] | None = None,
         taxonomy_domain: str = "german",
     ) -> None:
+        """Run the full clean → taxonomy → UUID → write pipeline and save outputs.
+
+        Writes three artefacts to disk:
+        - Cleaned Parquet (without UUIDs) at `cleaned_path`.
+        - UUID Parquet (with UUID column) at `uuid_path`.
+        - Taxonomy JSON artifact at `taxonomy_path`.
+
+        Args:
+            df (pl.DataFrame): Raw or pre-processed input DataFrame.
+            cleaned_path (Path): Destination for the cleaned Parquet file.
+            uuid_path (Path): Destination for the UUID-enriched Parquet file.
+            source_column (str): Column whose values are hashed to generate UUIDs.
+            data_dir (Path): Root data directory; created if absent.
+            taxonomy_path (Path): Destination for the taxonomy JSON artifact.
+            export_columns (list[str] | None, default=None): Taxonomy columns to
+                canonicalise. Defaults to `DEFAULT_EXPORT_COLUMNS`.
+            export_file_prefix (str, default=""): Unused prefix kept for API compatibility.
+            columns_to_drop_before_store (list[str] | None, default=None): Columns
+                to remove from both output Parquet files before writing.
+            taxonomy_domain (str, default="german"): Domain label embedded in the
+                taxonomy artifact (`"german"` or `"eu"`).
+        """
         columns_to_export = export_columns or DEFAULT_EXPORT_COLUMNS
 
         cleaned_df = self._cleaner.clean_dataframe(df)

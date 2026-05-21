@@ -10,6 +10,20 @@ TAXONOMY_FALLBACK_KEY = "unknown"
 
 
 def normalize_taxonomy_key(value: str | None) -> str:
+    """Convert a raw taxonomy display value to a stable, ASCII lookup key.
+
+    Applies lowercasing, umlaut expansion (ä→ae etc.), NFKD normalisation,
+    whitespace/punctuation collapsing to underscores, and strips non-word chars.
+
+    Args:
+        value (str | None): Raw display value, e.g. `"Forschung & Entwicklung"`.
+
+    Returns:
+        str: Normalised key, e.g. `"forschung_entwicklung"`. Returns `""` for None.
+
+    Example:
+        normalize_taxonomy_key("Förderung") == "foerderung"
+    """
     if value is None:
         return ""
 
@@ -30,6 +44,18 @@ def normalize_taxonomy_key(value: str | None) -> str:
 
 
 def is_invalid_taxonomy_value(value: str | None, key: str) -> bool:
+    """Return True if a taxonomy value should be routed to the fallback bucket.
+
+    A value is invalid when its normalised key is empty, null-like ("none", "nan", …),
+    or shorter than three characters.
+
+    Args:
+        value (str | None): Original display value.
+        key (str): Pre-computed normalised key from `normalize_taxonomy_key`.
+
+    Returns:
+        bool: True if the value should be treated as unknown/invalid.
+    """
     if not key:
         return True
 
@@ -44,6 +70,17 @@ def is_invalid_taxonomy_value(value: str | None, key: str) -> bool:
 
 
 def score_taxonomy_display_value(value: str | None) -> int:
+    """Score a display value for canonical-name selection (higher = preferred).
+
+    Rewards mixed-case and spaced values; penalises all-lower or underscored ones.
+    Used by `TaxonomyContractBuilder` to pick the best alias as the canonical label.
+
+    Args:
+        value (str | None): Display string to score.
+
+    Returns:
+        int: Relative score; -1 for None.
+    """
     if value is None:
         return -1
 
@@ -63,6 +100,21 @@ def score_taxonomy_display_value(value: str | None) -> int:
 
 
 def taxonomy_key_set(values: Iterable[object] | None) -> set[str]:
+    """Convert an iterable of raw taxonomy values to a set of normalised keys.
+
+    Used by both FastAPI (filter matching) and Streamlit (sidebar filter comparison)
+    to ensure consistent key normalisation across services.
+
+    Args:
+        values (Iterable[object] | None): Raw taxonomy strings or mixed types.
+            None and empty strings are silently skipped.
+
+    Returns:
+        set[str]: Set of normalised keys produced by `normalize_taxonomy_key`.
+
+    Example:
+        taxonomy_key_set(["Zuschuss", "Darlehen"]) == {"zuschuss", "darlehen"}
+    """
     if values is None:
         return set()
 

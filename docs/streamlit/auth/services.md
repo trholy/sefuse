@@ -13,6 +13,7 @@ Handles credential and account lifecycle rules.
 - Normalizes usernames and validates password strength before persistence. 
 - Verifies login credentials through the repository and password hasher. 
 - Rejects inactive users and invalid credentials with a generic authentication error. 
+- Logs successful logins at INFO level and failed attempts at WARNING level for audit trails. 
 - Creates regular users for admin-managed user provisioning. 
  
 ## Class `UserManagementService` 

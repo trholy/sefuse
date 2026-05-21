@@ -8,7 +8,6 @@ Defines immutable configuration objects and environment-backed defaults for the 
 - `EU_API_URL`: EU search API endpoint.
 - `EU_API_KEY`: API key used for EU search requests.
 - `EU_PAGE_SIZE`: number of records requested per EU API page.
-- `EU_MAX_PAGES`: maximum page count fetched from the EU API.
 - `EU_REQUEST_TIMEOUT_SECONDS`: HTTP timeout for EU requests.
 - `EU_PAGE_DELAY_SECONDS`: delay between EU page requests.
 
@@ -38,7 +37,6 @@ Important fields:
 - `api_url`: EU API endpoint.
 - `api_key`: API credential value.
 - `page_size`: number of items per request page.
-- `max_pages`: maximum number of pages to retrieve.
 - `request_timeout_seconds`: request timeout.
 - `page_delay_seconds`: delay inserted between page fetches.
 - `raw_json`: cached raw API response file.

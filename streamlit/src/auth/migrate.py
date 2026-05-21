@@ -22,6 +22,15 @@ def _sorted_migrations() -> list[Path]:
 
 
 def apply_migrations() -> None:
+    """Apply all pending SQL migration files to the auth database.
+
+    Discovers `.sql` files in the `migrations/` directory adjacent to this module,
+    tracks applied versions in the `schema_migrations` table, and runs each file
+    exactly once in alphabetical (version) order.
+
+    No-op when `AUTH_ENABLED=false`. Raises `RuntimeError` if no migration files
+    are found.
+    """
     settings = load_auth_settings()
     if not settings.enabled:
         return

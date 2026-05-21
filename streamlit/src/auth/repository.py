@@ -30,10 +30,27 @@ def _to_user_summary(row: dict) -> UserSummary:
 
 
 class PostgresUserRepository:
+    """PostgreSQL-backed user repository using parameterised psycopg2 queries.
+
+    All write operations commit immediately. Raises domain exceptions
+    (`UserAlreadyExistsError`, `UserNotFoundError`) instead of raw DB errors.
+
+    Args:
+        database (Database): Connection factory.
+    """
+
     def __init__(self, database: Database):
         self._database = database
 
     def get_by_username(self, username: str) -> UserRecord | None:
+        """Fetch a full user record by username, or return None if not found.
+
+        Args:
+            username (str): Normalised (lowercase) username to look up.
+
+        Returns:
+            UserRecord | None: Record with hashed password, or None.
+        """
         with self._database.connection() as connection:
             with connection.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute(
@@ -56,6 +73,11 @@ class PostgresUserRepository:
         return _to_user_record(row) if row else None
 
     def list_users(self) -> list[UserSummary]:
+        """Return all users sorted alphabetically by username.
+
+        Returns:
+            list[UserSummary]: Public summaries without password hashes.
+        """
         with self._database.connection() as connection:
             with connection.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute(
@@ -76,6 +98,19 @@ class PostgresUserRepository:
         return [_to_user_summary(row) for row in rows]
 
     def create_user(self, username: str, password_hash: str, role: str) -> UserRecord:
+        """Insert a new active user and return the created record.
+
+        Args:
+            username (str): Normalised username.
+            password_hash (str): bcrypt hash of the user's password.
+            role (str): Role name that must exist in the `auth_roles` table.
+
+        Returns:
+            UserRecord: The newly created user record.
+
+        Raises:
+            UserAlreadyExistsError: If the username is already taken.
+        """
         try:
             with self._database.connection() as connection:
                 with connection.cursor() as cursor:
@@ -101,6 +136,15 @@ class PostgresUserRepository:
         return created_user
 
     def update_password_hash(self, username: str, password_hash: str) -> None:
+        """Update the password hash for an existing user.
+
+        Args:
+            username (str): Normalised username of the user to update.
+            password_hash (str): New bcrypt hash.
+
+        Raises:
+            UserNotFoundError: If no user with that username exists.
+        """
         with self._database.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -116,6 +160,14 @@ class PostgresUserRepository:
             connection.commit()
 
     def delete_user(self, username: str) -> None:
+        """Delete a user by username.
+
+        Args:
+            username (str): Normalised username to delete.
+
+        Raises:
+            UserNotFoundError: If no user with that username exists.
+        """
         with self._database.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(

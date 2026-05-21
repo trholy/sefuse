@@ -21,6 +21,15 @@ OLLAMA_EMBED_TIMEOUT_SECONDS = float(os.getenv("OLLAMA_EMBED_TIMEOUT_SECONDS", "
 
 
 def chunked(iterable, size: int):
+    """Yield successive fixed-size chunks from an iterable.
+
+    Args:
+        iterable: Any iterable to split.
+        size (int): Maximum number of elements per chunk.
+
+    Yields:
+        list: Successive sublists of at most `size` elements.
+    """
     """Yield successive chunks of given size from iterable."""
     it = iter(iterable)
     while chunk := list(islice(it, size)):
@@ -32,6 +41,23 @@ def load_funding_data(
         retries: int = 10,
         delay: int = 1
 ) -> pl.DataFrame:
+    """Read a Parquet file with exponential-backoff retries.
+
+    Retries are useful when the data-processing container writes the file
+    while the FastAPI container is already attempting to read it on startup.
+
+    Args:
+        file_path (str): Path to the Parquet file.
+        retries (int, default=10): Maximum number of read attempts.
+        delay (int, default=1): Initial wait in seconds between attempts;
+            doubles each retry up to a maximum of 30 seconds.
+
+    Returns:
+        pl.DataFrame: Loaded DataFrame.
+
+    Raises:
+        FileNotFoundError: If the file is still absent after all retries.
+    """
     """Read a Parquet file with retries if the file is not ready yet."""
     for attempt in range(1, retries + 1):
         try:
@@ -47,7 +73,25 @@ def load_funding_data(
 
 
 class EmbeddingService:
-    """Handles text embedding via Ollama using nomic-embed-text tokenizer."""
+    """Chunks long texts and fetches dense embeddings from the local Ollama service.
+
+    Text is tokenised with the HuggingFace tokenizer for the configured model to
+    produce overlapping chunks that respect the model's context window.
+
+    Args:
+        ollama_url (str, default=OLLAMA_URL): Base URL of the Ollama API.
+        model (str, default=EMBED_MODEL): Ollama model name used for embedding.
+        max_tokens (int, default=384): Maximum tokens per chunk.
+        overlap_tokens (int, default=96): Token overlap between consecutive chunks.
+        tokenizer (str, default=TOKENIZER): HuggingFace tokenizer identifier for
+            chunk boundary calculation.
+
+    Example:
+        service = EmbeddingService()
+        chunks = service.chunk_text(long_text)
+        async with httpx.AsyncClient() as client:
+            vector = await service.fetch_embedding(client, chunks[0])
+    """
 
     def __init__(
             self,
@@ -69,9 +113,14 @@ class EmbeddingService:
         )
 
     def chunk_text(self, text: str) -> List[str]:
-        """
-        Split text into overlapping token-based chunks using the
-        nomic-embed-text tokenizer.
+        """Split text into overlapping token-based chunks.
+
+        Args:
+            text (str): Input text to split.
+
+        Returns:
+            List[str]: Decoded text chunks of at most `max_tokens` tokens,
+                with `overlap_tokens` overlap between adjacent chunks.
         """
         tokens = self.tokenizer.encode(text, add_special_tokens=False)
         chunks = []
@@ -96,7 +145,15 @@ class EmbeddingService:
         client: httpx.AsyncClient,
         text: str
     ) -> Optional[List[float]]:
-        """Fetch embedding vector for a text chunk."""
+        """Request a dense embedding vector for a single text chunk from Ollama.
+
+        Args:
+            client (httpx.AsyncClient): Shared async HTTP client.
+            text (str): Text chunk to embed.
+
+        Returns:
+            Optional[List[float]]: Embedding vector, or None if the request fails.
+        """
         try:
             resp = await client.post(
                 f"{self.ollama_url}/api/embeddings",
@@ -111,7 +168,20 @@ class EmbeddingService:
 
 
 class Pipeline:
-    """Main pipeline to embed new rows and insert them into Qdrant."""
+    """Embedding pipeline: reads new Parquet rows, generates embeddings, upserts into Qdrant.
+
+    Handles incremental updates by fetching existing IDs from Qdrant, deleting stale
+    projects no longer in the Parquet, and only embedding rows not yet indexed.
+
+    Args:
+        qdrant (QdrantManager): Qdrant collection manager for insert/delete/scroll.
+        embed_service (EmbeddingService): Service that chunks text and fetches embeddings.
+        file_path (str): Path to the UUID Parquet file produced by `CommonDataPipeline`.
+
+    Example:
+        pipeline = Pipeline(qdrant_manager, embedding_service, "data/german_parquet_data_uuid.parquet")
+        await pipeline.manage_embeddings()
+    """
 
     def __init__(
             self,
@@ -124,14 +194,11 @@ class Pipeline:
         self.file_path = file_path
 
     async def manage_embeddings(self) -> None:
-        """
-        Orchestrate the full embedding management workflow for projects.
+        """Run the full incremental embedding pipeline.
 
-        This method loads and normalizes funding data, identifies and deletes
-         removed projects from Qdrant, determines new active projects that
-         require embeddings, and processes them asynchronously by generating
-         and inserting embeddings for each project. Logs key steps and exits
-         early if there are no new projects.
+        Loads the Parquet file, removes stale Qdrant entries for projects
+        no longer active, identifies rows not yet indexed, and embeds and
+        upserts them into the Qdrant collection.
         """
         df = self._load_and_normalize_data()
         existing_ids = set(self._fetch_existing_ids())
@@ -150,12 +217,10 @@ class Pipeline:
         await self._embed_and_insert_rows(new_rows)
 
     def _load_and_normalize_data(self) -> pl.DataFrame:
-        """
-        Load funding data from the specified file path and normalize the UUID
-         column to string type.
+        """Load the Parquet file and cast the ``uuid`` column to UTF-8 strings.
 
-        Returns a Polars DataFrame with all UUIDs cast to UTF-8 strings to
-         ensure consistent processing in subsequent operations.
+        Returns:
+            pl.DataFrame: DataFrame with a string-typed ``uuid`` column.
         """
         df = load_funding_data(self.file_path)
         return df.with_columns(pl.col("uuid").cast(pl.Utf8))
@@ -165,15 +230,6 @@ class Pipeline:
             df: pl.DataFrame,
             existing_ids: set[str]
     ) -> list[str]:
-        """
-        Delete from Qdrant any project whose ID is present in Qdrant but
-         absent from the active set in the Parquet file.
-
-        This catches both rows explicitly marked as deleted and rows that have
-         simply disappeared from the data source (e.g. EU calls that fall
-         outside the current pagination window), ensuring no stale data
-         accumulates in the vector store.
-        """
         active_ids = set(
             df.filter(pl.col("deleted") == False)["uuid"].to_list()
         )
@@ -194,13 +250,14 @@ class Pipeline:
             df: pl.DataFrame,
             existing_ids: set[str],
     ) -> pl.DataFrame:
-        """
-        Return a DataFrame containing active projects that are not already
-         in the existing IDs set.
+        """Filter the DataFrame to active rows whose UUIDs are not yet in Qdrant.
 
-        Filters out rows marked as deleted and excludes any projects whose UUIDs
-         are present in existing_ids, resulting in only new, active projects
-         to be processed for embedding.
+        Args:
+            df (pl.DataFrame): Full funding DataFrame (includes deleted rows).
+            existing_ids (set[str]): UUIDs already present in the Qdrant collection.
+
+        Returns:
+            pl.DataFrame: Subset of active, not-yet-indexed rows.
         """
         active_rows = df.filter(pl.col("deleted") == False)
 
@@ -212,14 +269,6 @@ class Pipeline:
             self,
             new_rows: pl.DataFrame
     ) -> None:
-        """
-        Iterate over new project rows, generate embeddings for each, and insert
-         them into Qdrant.
-
-        This method extracts descriptions, metadata, and project IDs from the
-         provided DataFrame, creates a shared HTTP client, and processes each
-         project sequentially by delegating to the per-project embedding pipeline.
-        """
         descriptions = new_rows["description"].cast(pl.Utf8).to_list()
         metadata_list = new_rows.to_dicts()
         ids = new_rows["uuid"].to_list()
@@ -237,14 +286,13 @@ class Pipeline:
             metadata: dict,
             project_id: str,
     ) -> None:
-        """
-        Process a single project by chunking its description, generating
-         embeddings, and storing them in Qdrant.
+        """Chunk, embed, and upsert a single project into Qdrant.
 
-        The project description is split into text chunks, embeddings are
-         generated asynchronously for each chunk, and all valid embeddings are
-         inserted with the same metadata and project ID. If no embeddings are
-         produced, the project is skipped and a warning is logged.
+        Args:
+            client (httpx.AsyncClient): Shared async HTTP client for Ollama requests.
+            description (str): Full project description text to embed.
+            metadata (dict): Payload dict stored alongside each point in Qdrant.
+            project_id (str): UUID used as the Qdrant point ID.
         """
         text_chunks = self.embed_service.chunk_text(description)
 
@@ -265,13 +313,16 @@ class Pipeline:
             client: httpx.AsyncClient,
             chunks: list[str],
     ) -> list[list[float]]:
-        """
-        Generate embedding vectors for a sequence of text chunks using
-         the embedding service.
+        """Fetch dense embedding vectors for each text chunk from Ollama.
 
-        Each chunk is sent asynchronously to the embedding API, and only
-         successfully returned embeddings are collected and returned, preserving
-         the original chunk order for all valid results.
+        Chunks that fail to embed are silently skipped.
+
+        Args:
+            client (httpx.AsyncClient): Shared async HTTP client.
+            chunks (list[str]): Text chunks produced by ``EmbeddingService.chunk_text``.
+
+        Returns:
+            list[list[float]]: Successfully generated embedding vectors.
         """
         embeddings = []
 
@@ -288,30 +339,29 @@ class Pipeline:
             metadata: dict,
             project_id: str,
     ) -> None:
-        """
-        Insert all embedding vectors for a single project into Qdrant using
-         the same metadata and project ID.
-
-        Each embedding in the provided list is stored as a separate vector entry,
-         allowing multiple text chunks from the same project to be indexed and
-         retrieved while sharing identical metadata and identifier.
-        """
-        for emb in embeddings:
-            self.qdrant.insert_projects(
-                embeddings=[emb],
-                metadata_list=[metadata],
-                ids=[project_id],
-            )
+        self.qdrant.insert_projects(
+            embeddings=embeddings,
+            metadata_list=[metadata] * len(embeddings),
+            ids=[project_id] * len(embeddings),
+        )
 
     def _fetch_existing_ids(self) -> List[str]:
-        """Fetch all existing project UUIDs from Qdrant."""
+        """Scroll through the entire Qdrant collection and return all point IDs.
+
+        Uses paginated scrolling (256 points per page) with no payload or
+        vector data to minimise memory and network overhead.
+
+        Returns:
+            List[str]: All point IDs currently stored in the collection.
+                Returns an empty list if the scroll fails.
+        """
         all_ids = []
         offset = None
         try:
             while True:
                 points, offset = self.qdrant.client.scroll(
                     collection_name=self.qdrant.collection_name,
-                    limit=10,
+                    limit=256,
                     with_payload=False,
                     with_vectors=False,
                     offset=offset,

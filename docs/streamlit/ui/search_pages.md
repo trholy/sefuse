@@ -8,8 +8,8 @@ Abstract base class for funding search pages.
 
 ### Constructor
 
-- `model`: embedding model name, defaults from `MODEL`.
-- `fastapi_url`: backend base URL, defaults from `FASTAPI_URL`.
+- `model`: embedding model name, defaults from `MODEL` env var.
+- `fastapi_url`: backend base URL, defaults from `FASTAPI_URL` env var.
 
 ### Abstract Properties
 
@@ -25,44 +25,44 @@ Abstract base class for funding search pages.
 
 ### Abstract Methods
 
-- `render_sidebar()`: returns search limit and additional context.
+- `render_sidebar()`: renders page-specific sidebar controls and returns `(semantic_weight: float, search_limit: int, context: dict)` where *context* may contain a `filters` key forwarded to the FastAPI backend.
 - `render_result(result)`: renders one result card.
-
-### Optional Hook
-
-- `process_results(results, context)`: allows subclasses to post-process results before rendering.
 
 ### `render()`
 
 Common page flow:
 
 1. Configure page metadata.
-2. Render query input.
-3. Render sidebar controls through subclass hook.
-4. Execute backend search on button click.
-5. Aggregate chunk-level matches.
-6. Apply optional post-processing.
-7. Render success/warning/error feedback.
+2. Render query text area.
+3. Call `render_sidebar()` to get search parameters and filter context.
+4. On button click, call `search_projects()` with all parameters (including `filters` from context).
+5. Render success/warning/error feedback and iterate results through `render_result()`.
+
+All taxonomy filtering and drop-N/A logic is handled server-side by the FastAPI backend.
 
 ## Class `GermanFundingSearchPage`
 
 Implements the German federal funding UI.
 
+### `render_sidebar()`
+
+Fetches the taxonomy artifact from `/v1/vocab/german` and builds multiselect filter widgets for each field in `FIELD_CONFIG`. Displays canonical labels while storing stable taxonomy keys internally. Falls back gracefully with a sidebar warning when the taxonomy is unavailable. Returns `(semantic_weight, search_limit, context)` where *context* contains a `filters` dict with selected taxonomy keys and the `drop_na` flag.
+
 ### Key Behavior
 
 - Uses `/v1/search/german`.
-- Fetches taxonomy from FastAPI (`/v1/vocab/german`) and builds filter widgets from taxonomy keys.
-- Displays canonical labels in multiselect controls while storing stable taxonomy keys.
-- Sends selected taxonomy keys to backend search as `filters`.
-- Applies key-based result filtering through `apply_filters`.
-- Warns in sidebar when taxonomy loading fails.
+- Sends selected taxonomy keys and drop-N/A flag to the backend as `filters` in each search request.
+- Sidebar also exposes search limit, semantic weight slider, and drop-N/A checkbox.
 
 ## Class `EuFundingSearchPage`
 
 Implements the EU funding UI.
 
+### `render_sidebar()`
+
+Renders search limit and semantic weight slider controls. Returns `(semantic_weight, search_limit, context)` where *context* is an empty dict (no taxonomy filters for EU searches).
+
 ### Key Behavior
 
 - Uses `/v1/search/eu`.
-- Provides search-limit sidebar control.
 - Renders cards with `render_eu_project_result`.

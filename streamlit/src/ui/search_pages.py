@@ -17,6 +17,18 @@ logger = logging.getLogger(__name__)
 
 
 class BaseFundingSearchPage(ABC):
+    """Abstract base class for German and EU funding search pages.
+
+    Subclasses define the page title, API endpoint, widget keys, sidebar controls,
+    and result rendering. The shared `render()` method wires them together.
+
+    Args:
+        model (str | None, default=None): Embedding model name; falls back to the
+            `MODEL` environment variable (`"nomic-embed-text"`).
+        fastapi_url (str | None, default=None): FastAPI base URL; falls back to the
+            `FASTAPI_URL` environment variable (`"http://fastapi:8000"`).
+    """
+
     def __init__(
         self,
         model: str | None = None,
@@ -58,6 +70,18 @@ class BaseFundingSearchPage(ABC):
 
     @abstractmethod
     def render_sidebar(self) -> tuple[float, int, dict[str, Any]]:
+        """Render sidebar controls and return the search configuration.
+
+        Subclasses implement this to provide page-specific sidebar widgets
+        (filters, sliders, checkboxes) and return the collected parameters
+        needed by the search request.
+
+        Returns:
+            tuple[float, int, dict[str, Any]]: A three-element tuple of
+                ``(semantic_weight, search_limit, context)`` where *context*
+                is a dict that may contain a ``filters`` key forwarded to the
+                FastAPI backend.
+        """
         pass
 
     @abstractmethod
@@ -65,6 +89,7 @@ class BaseFundingSearchPage(ABC):
         pass
 
     def render(self) -> None:
+        """Render the full search page: config, text area, sidebar, search button, and results."""
         st.set_page_config(
             page_title=f"SeFuSe - {self.page_title}",
             layout="centered",
@@ -104,6 +129,11 @@ class BaseFundingSearchPage(ABC):
 
 
 class GermanFundingSearchPage(BaseFundingSearchPage):
+    """Search page for the German federal funding database (`/v1/search/german`).
+
+    Adds taxonomy-based sidebar multiselect filters fetched from `/v1/vocab/german`
+    and a drop-N/A checkbox. Filters are sent server-side with each search request.
+    """
     FIELD_CONFIG = [
         ("funding_location", "Funding location", "federal_locations"),
         ("funding_type", "Type of funding", "federal_funding_type"),
@@ -132,6 +162,17 @@ class GermanFundingSearchPage(BaseFundingSearchPage):
         return "No projects match your selected filters."
 
     def render_sidebar(self) -> tuple[float, int, dict[str, Any]]:
+        """Render German-specific sidebar with taxonomy multiselects, drop-N/A, and search controls.
+
+        Fetches the taxonomy artifact from ``/v1/vocab/german`` and builds
+        multiselect widgets for each field in ``FIELD_CONFIG``. Falls back
+        gracefully with a warning when the taxonomy is unavailable.
+
+        Returns:
+            tuple[float, int, dict[str, Any]]: ``(semantic_weight, search_limit,
+                context)`` where *context* contains a ``filters`` dict with
+                selected taxonomy keys and the ``drop_na`` flag.
+        """
         options_by_field: dict[str, list[str]] = {}
         labels_by_field: dict[str, dict[str, str]] = {}
         taxonomy_columns: dict[str, Any] = {}
@@ -200,6 +241,11 @@ class GermanFundingSearchPage(BaseFundingSearchPage):
 
 
 class EuFundingSearchPage(BaseFundingSearchPage):
+    """Search page for EU funding calls (`/v1/search/eu`).
+
+    Provides a minimal sidebar (search limit + semantic weight slider) with no
+    taxonomy filters, as EU data uses a smaller controlled vocabulary.
+    """
     @property
     def page_title(self) -> str:
         return "EU Funding Programs"
@@ -217,6 +263,13 @@ class EuFundingSearchPage(BaseFundingSearchPage):
         return "eu_query"
 
     def render_sidebar(self) -> tuple[float, int, dict[str, Any]]:
+        """Render EU-specific sidebar with search limit and semantic weight controls.
+
+        Returns:
+            tuple[float, int, dict[str, Any]]: ``(semantic_weight, search_limit,
+                context)`` where *context* is an empty dict (no taxonomy filters
+                for EU searches).
+        """
         search_limit = st.sidebar.number_input(
             "Search limit",
             min_value=5,

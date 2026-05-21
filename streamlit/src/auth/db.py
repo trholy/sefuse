@@ -8,11 +8,27 @@ from .config import AuthSettings
 
 
 class Database:
+    """Thin psycopg2 connection factory that reads credentials from `AuthSettings`.
+
+    Args:
+        settings (AuthSettings): Frozen dataclass with DB host, port, credentials, and timeout.
+
+    Example:
+        db = Database(settings)
+        with db.connection() as conn:
+            conn.cursor().execute("SELECT 1")
+    """
+
     def __init__(self, settings: AuthSettings):
         self._settings = settings
 
     @contextmanager
     def connection(self) -> Iterator[psycopg2.extensions.connection]:
+        """Open a psycopg2 connection, yield it, and close it on exit.
+
+        Yields:
+            psycopg2.extensions.connection: Open database connection.
+        """
         connection = psycopg2.connect(
             host=self._settings.db_host,
             port=self._settings.db_port,
@@ -28,6 +44,11 @@ class Database:
 
     @contextmanager
     def dict_cursor(self) -> Iterator[RealDictCursor]:
+        """Open a connection and yield a `RealDictCursor` that returns rows as dicts.
+
+        Yields:
+            RealDictCursor: Cursor whose `fetchone`/`fetchall` return `dict`-like rows.
+        """
         with self.connection() as connection:
             with connection.cursor(cursor_factory=RealDictCursor) as cursor:
                 yield cursor

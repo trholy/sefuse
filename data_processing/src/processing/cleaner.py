@@ -4,7 +4,17 @@ from bs4 import BeautifulSoup
 
 
 class HtmlCleaner:
+    """Strips HTML tags from a string, returning plain text."""
+
     def clean(self, value: str | None) -> str:
+        """Strip HTML markup and return plain text.
+
+        Args:
+            value (str | None): Raw string, optionally containing HTML tags.
+
+        Returns:
+            str: Plain text with tags removed, or "N/A" for empty/None input.
+        """
         if not value:
             return "N/A"
 
@@ -16,10 +26,32 @@ class HtmlCleaner:
 
 
 class DataCleaner:
+    """Cleans a raw funding DataFrame: extracts description sections, fills nulls, strips HTML.
+
+    Args:
+        html_cleaner (HtmlCleaner): Instance used to strip HTML from string columns.
+
+    Example:
+        cleaner = DataCleaner(HtmlCleaner())
+        clean_df = cleaner.clean_dataframe(raw_df)
+    """
+
     def __init__(self, html_cleaner: HtmlCleaner):
         self._html_cleaner = html_cleaner
 
     def clean_dataframe(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Apply all cleaning steps to a funding DataFrame.
+
+        Extracts `project_short_description` and `project_full_description`
+        from the HTML `description` column (German pattern), replaces empty
+        strings with "N/A", and strips HTML from all remaining string columns.
+
+        Args:
+            df (pl.DataFrame): Raw input DataFrame with at least a `description` column.
+
+        Returns:
+            pl.DataFrame: Cleaned DataFrame with description fields populated.
+        """
         short_description_expr = pl.col("description").str.extract(
             r"<h3>\s*Kurztext\s*</h3>(.*?)<h3>\s*Volltext\s*</h3>",
             1,

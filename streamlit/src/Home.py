@@ -16,6 +16,7 @@ st.set_page_config(
 
 
 def _render_login_form() -> None:
+    """Render the username/password login form and attempt login on submit."""
     with st.form("login_form"):
         username = st.text_input("Username")
         password = st.text_input("Password", type="password")
@@ -30,12 +31,14 @@ def _render_login_form() -> None:
 
 
 def render_login_screen() -> None:
+    """Render the full login screen with title, description, and login form."""
     st.title("SeFuSe Login")
     st.write("Please sign in with your username and password.")
     _render_login_form()
 
 
 def render_home_content() -> None:
+    """Render the authenticated home page with app description and navigation hints."""
     st.title("Semantic Funding Search (SeFuSe)")
     description_text = (
         "Use **SeFuSE** to semantically search two funding sources:\n"

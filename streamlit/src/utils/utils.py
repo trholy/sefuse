@@ -33,7 +33,16 @@ def safe_join(
         sep: str = ", ",
         default: str = "N/A"
 ) -> str:
-    """Safely join lists or return default for empty values."""
+    """Join a list to a display string, returning a default for empty or None input.
+
+    Args:
+        value (List[Any] | None): List of values to join, or None.
+        sep (str, default=", "): Separator placed between items.
+        default (str, default="N/A"): Returned when `value` is empty or None.
+
+    Returns:
+        str: Joined string or the default value.
+    """
     if not value:
         return default
     if isinstance(value, (list, tuple, set)):
@@ -51,7 +60,25 @@ def search_projects(
         filters: Dict[str, List[str]] | None = None,
         timeout: int = 30
 ) -> List[Dict]:
-    """Run semantic search request against the backend and return matches."""
+    """Send a search request to the FastAPI backend and return the matched projects.
+
+    Args:
+        fastapi_url (str): Base URL of the FastAPI service, e.g. `"http://fastapi:8000"`.
+        model (str): Embedding model name forwarded in the request body.
+        query (str): User's natural-language search text.
+        search_limit (int): Maximum number of results to request.
+        endpoint (str): API path, e.g. `"/v1/search/german"`.
+        semantic_weight (float, default=0.7): Hybrid search weight (0=keyword, 1=semantic).
+        filters (Dict[str, List[str]] | None, default=None): Optional taxonomy filters
+            and drop_na flag forwarded to the backend.
+        timeout (int, default=30): HTTP request timeout in seconds.
+
+    Returns:
+        List[Dict]: List of matching project dicts from the `matches` key.
+
+    Raises:
+        requests.HTTPError: On non-2xx responses.
+    """
     payload = {
         "model": model,
         "messages": [{"role": "user", "content": query}],
@@ -77,6 +104,22 @@ def fetch_german_taxonomy(
         fastapi_url: str,
         timeout: int = 30
 ) -> Dict[str, Any]:
+    """Fetch the German taxonomy artifact from the FastAPI `/v1/vocab/german` endpoint.
+
+    Result is cached by Streamlit for 300 seconds to avoid redundant API calls
+    on every sidebar re-render.
+
+    Args:
+        fastapi_url (str): Base URL of the FastAPI service.
+        timeout (int, default=30): HTTP request timeout in seconds.
+
+    Returns:
+        Dict[str, Any]: Taxonomy artifact with a `columns` key, or `{"columns": {}}`
+            on malformed responses.
+
+    Raises:
+        requests.HTTPError: On non-2xx responses.
+    """
     response = requests.get(
         f"{fastapi_url}/v1/vocab/german",
         headers=_api_headers(),
@@ -92,7 +135,14 @@ def fetch_german_taxonomy(
 
 
 def render_german_project_result(result: Dict) -> None:
-    """Render a single funding project card."""
+    """Render a German federal funding project as a Streamlit card.
+
+    Displays title (linked to project website), short/full descriptions, on-website
+    and last-updated dates, funding type, location, area, eligible applicants, and score.
+
+    Args:
+        result (Dict): Project dict as returned by `search_projects`.
+    """
     st.subheader(
         f"[{result.get('project_title', 'No title')}]"
         f"({result.get('project_website', '#')})"
@@ -145,7 +195,14 @@ def _parse_datetime(value: Any) -> datetime | None:
 
 
 def render_eu_project_result(result: Dict) -> None:
-    """Render a single EU funding project card."""
+    """Render an EU funding call as a Streamlit card.
+
+    Displays title (linked to the EU portal), full description, planned opening
+    date, deadline, and matching score.
+
+    Args:
+        result (Dict): Project dict as returned by `search_projects`.
+    """
     st.subheader(
         f"[{result.get('project_title', 'No title')}]"
         f"({result.get('project_website', '#')})"
@@ -170,7 +227,14 @@ def render_eu_project_result(result: Dict) -> None:
 
 
 def _friendly_search_error(error: Exception) -> str:
-    """Convert backend/search errors into user-friendly UI text."""
+    """Map a search exception to a user-friendly error message for display in the UI.
+
+    Args:
+        error (Exception): Exception raised during `search_projects`.
+
+    Returns:
+        str: Human-readable message suitable for `st.error(...)`.
+    """
     if isinstance(error, (requests.exceptions.ConnectionError, ConnectionRefusedError)):
         return (
             "Search service is still starting up."

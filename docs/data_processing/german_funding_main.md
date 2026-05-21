@@ -29,6 +29,5 @@ Workflow:
 - Downloaded ZIP archive.
 - Extracted raw parquet file.
 - Cleaned parquet file.
-- UUID-enriched parquet file (including taxonomy key columns when taxonomy is enabled).
-- Filter text files in the configured data directory.
-- `taxonomy_german.json` contract artifact when taxonomy output is configured.
+- UUID-enriched parquet file with taxonomy key columns.
+- `taxonomy_german.json` contract artifact at `config.taxonomy_json`.

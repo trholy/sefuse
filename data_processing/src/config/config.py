@@ -20,6 +20,12 @@ EU_PAGE_DELAY_SECONDS = float(os.getenv("EU_PAGE_DELAY_SECONDS", "0.2"))
 
 @dataclass(frozen=True)
 class GermanFundingConfig:
+    """File paths and download URL for the German federal funding pipeline.
+
+    All paths default to a `data/` subdirectory relative to the working directory.
+    Override `GERMAN_FUNDING_DATA_URL` via environment variable to change the source.
+    """
+
     data_dir: Path = Path("data")
     zip_url: str = GERMAN_FUNDING_DATA_URL
 
@@ -32,6 +38,12 @@ class GermanFundingConfig:
 
 @dataclass(frozen=True)
 class EuFundingConfig:
+    """API settings and file paths for the EU funding pipeline.
+
+    API parameters (URL, key, page size, timeouts) are read from environment variables
+    and default to the public SEDIA endpoint. All file paths live under `data/`.
+    """
+
     data_dir: Path = Path("data")
 
     api_url: str = EU_API_URL
