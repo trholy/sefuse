@@ -10,6 +10,7 @@ import httpx
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from typing import Literal
 from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -60,8 +61,8 @@ class InternalTokenMiddleware(BaseHTTPMiddleware):
 
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
-EMBED_MODEL = os.getenv('MODEL', 'nomic-embed-text')
-TOKENIZER = os.getenv('TOKENIZER', 'nomic-ai/nomic-embed-text-v1.5')
+EMBED_MODEL = os.getenv('MODEL', 'bge-m3')
+TOKENIZER = os.getenv('TOKENIZER', 'BAAI/bge-m3')
 OLLAMA_EMBED_TIMEOUT_SECONDS = float(os.getenv("OLLAMA_EMBED_TIMEOUT_SECONDS", "120"))
 CRON_TRIGGER_GERMAN_DATA_PROCESSING = int(os.getenv("CRON_TRIGGER_GERMAN_DATA_PROCESSING", "0"))
 CRON_TRIGGER_GERMAN_EMBEDDING = int(os.getenv("CRON_TRIGGER_GERMAN_EMBEDDING", "3"))
@@ -85,6 +86,7 @@ GERMAN_TAXONOMY_FILE_PATH = os.getenv(
 
 
 class SearchMessage(BaseModel):
+    role: Literal["user"] = "user"
     content: str
 
 
@@ -172,12 +174,18 @@ def _result_matches_filters(
     return True
 
 
+TOPK_SCORES = int(os.getenv("TOPK_SCORES", "3"))
+
+
 def _aggregate_results(results: list[Any]) -> list[dict[str, Any]]:
-    """Deduplicate Qdrant results by project ID, keeping the highest chunk score.
+    """Deduplicate Qdrant results by project using TopK-Avg scoring.
 
     Multiple chunks from the same project may appear in search results. This
-    function collapses them into one entry per `id_url` (or `result.id` as fallback),
-    retaining all metadata from the first occurrence and the max score across chunks.
+    function collapses them into one entry per project, using ``project_uuid``
+    from the point payload as the grouping key (with fallback to ``id_url``,
+    then the raw point ID for legacy points). The final score is the average
+    of the top-K chunk scores per project, which is more robust than MaxP
+    against single spuriously high chunk scores.
 
     Args:
         results (list[Any]): Raw `ScoredPoint` list from `QdrantManager.search`.
@@ -186,13 +194,14 @@ def _aggregate_results(results: list[Any]) -> list[dict[str, Any]]:
         list[dict[str, Any]]: Deduplicated result dicts with a `matching_score` field.
     """
     aggregated: Dict[str, Dict[str, Any]] = {}
+    scores_by_project: Dict[str, list[float]] = {}
     for result in results:
         payload = result.payload
         if not isinstance(payload, dict):
             logger.warning(f"Skipping invalid payload: {payload}")
             continue
 
-        project_id = payload.get("id_url", "") or result.id
+        project_id = payload.get("project_uuid") or payload.get("id_url", "") or str(result.id)
         if project_id not in aggregated:
             aggregated[project_id] = {
                 "project_id": project_id,
@@ -230,15 +239,64 @@ def _aggregate_results(results: list[Any]) -> list[dict[str, Any]]:
                     payload.get("eligible_applicants_keys")
                 ),
                 "project_website": payload.get("url", ""),
-                "matching_score": result.score,
+                "matching_score": 0,
             }
-        else:
-            aggregated[project_id]["matching_score"] = max(
-                aggregated[project_id]["matching_score"],
-                result.score,
-            )
+            scores_by_project[project_id] = []
+        scores_by_project[project_id].append(result.score)
+
+    for project_id, entry in aggregated.items():
+        top_scores = sorted(scores_by_project[project_id], reverse=True)[:TOPK_SCORES]
+        entry["matching_score"] = sum(top_scores) / len(top_scores)
 
     return list(aggregated.values())
+
+
+OLLAMA_MODEL_READY_INTERVAL = int(os.getenv("OLLAMA_MODEL_READY_INTERVAL", "10"))
+OLLAMA_MODEL_READY_TIMEOUT = int(os.getenv("OLLAMA_MODEL_READY_TIMEOUT", "600"))
+
+_http_client = httpx.AsyncClient()
+
+
+async def _await_ollama_model() -> None:
+    """Block until the Ollama embedding model is ready to serve requests.
+
+    Sends a test embed request in a loop. Retries on 404 (model still
+    pulling) and connection errors. The per-request timeout uses
+    ``OLLAMA_EMBED_TIMEOUT_SECONDS`` (default 120 s) rather than a short
+    value because the first successful request triggers Ollama's model
+    load into GPU memory, which can take over 30 s. A shorter timeout
+    would cause Ollama to abort the load on client disconnect and restart
+    from scratch on the next probe.
+
+    Raises:
+        TimeoutError: If the model is not ready within
+            ``OLLAMA_MODEL_READY_TIMEOUT`` seconds.
+    """
+    deadline = asyncio.get_running_loop().time() + OLLAMA_MODEL_READY_TIMEOUT
+    while True:
+        try:
+            resp = await _http_client.post(
+                f"{OLLAMA_URL}/api/embed",
+                json={"model": EMBED_MODEL, "input": "ready"},
+                timeout=OLLAMA_EMBED_TIMEOUT_SECONDS,
+            )
+            if resp.status_code == 200:
+                logger.info("Ollama model '%s' is ready", EMBED_MODEL)
+                return
+            logger.info(
+                "Ollama returned %s — model '%s' not ready yet, retrying in %ss",
+                resp.status_code, EMBED_MODEL, OLLAMA_MODEL_READY_INTERVAL,
+            )
+        except (httpx.ConnectError, httpx.ReadError, httpx.TimeoutException) as exc:
+            logger.info(
+                "Ollama not reachable (%s) — retrying in %ss",
+                type(exc).__name__, OLLAMA_MODEL_READY_INTERVAL,
+            )
+        if asyncio.get_running_loop().time() >= deadline:
+            raise TimeoutError(
+                f"Ollama model '{EMBED_MODEL}' not ready after {OLLAMA_MODEL_READY_TIMEOUT}s"
+            )
+        await asyncio.sleep(OLLAMA_MODEL_READY_INTERVAL)
 
 
 async def _embed_query(query: str, model: str) -> list[float]:
@@ -246,7 +304,7 @@ async def _embed_query(query: str, model: str) -> list[float]:
 
     Args:
         query (str): User's search text.
-        model (str): Ollama model name, e.g. `"nomic-embed-text"`.
+        model (str): Ollama model name, e.g. ``"bge-m3"``.
 
     Returns:
         list[float]: Dense embedding vector.
@@ -254,14 +312,13 @@ async def _embed_query(query: str, model: str) -> list[float]:
     Raises:
         httpx.HTTPStatusError: If Ollama returns a non-2xx response.
     """
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"{OLLAMA_URL}/api/embeddings",
-            json={"model": model, "prompt": query},
-            timeout=OLLAMA_EMBED_TIMEOUT_SECONDS,
-        )
-        resp.raise_for_status()
-        return resp.json()["embedding"]
+    resp = await _http_client.post(
+        f"{OLLAMA_URL}/api/embed",
+        json={"model": model, "input": query},
+        timeout=OLLAMA_EMBED_TIMEOUT_SECONDS,
+    )
+    resp.raise_for_status()
+    return resp.json()["embeddings"][0]
 
 
 async def _search_collection(
@@ -276,6 +333,7 @@ async def _search_collection(
     3. Deduplicates chunks via `_aggregate_results`.
     4. Normalises scores to [0, 1] by dividing by the max score.
     5. Applies taxonomy key filters and optional drop-N/A.
+    6. Sorts results by descending score.
 
     Args:
         body (SearchRequest): Validated search request (messages, model, limit,
@@ -320,6 +378,7 @@ async def _search_collection(
                 continue
         filtered.append(match)
 
+    filtered.sort(key=lambda m: m["matching_score"], reverse=True)
     return {"matches": filtered}
 
 
@@ -381,18 +440,40 @@ async def lifespan(app: FastAPI):
         await eu_pipeline.manage_embeddings()
 
     async def run_startup_pipeline() -> None:
-        jobs = [
+        data_jobs = [
             ("German funding_data processing", run_german_data_processing),
             ("EU funding_data processing", run_eu_data_processing),
+        ]
+        embedding_jobs = [
             ("German embedding pipeline", run_german_embedding_pipeline),
             ("EU embedding pipeline", run_eu_embedding_pipeline),
         ]
-        for name, job in jobs:
+
+        async def run_data_processing():
+            for name, job in data_jobs:
+                try:
+                    await job()
+                    logger.info("Startup job finished: %s", name)
+                except Exception:
+                    logger.exception("Startup job failed: %s", name)
+
+        # Data processing and model readiness check run in parallel.
+        # Embedding pipelines only start once both have completed.
+        data_task = asyncio.create_task(run_data_processing())
+        try:
+            await _await_ollama_model()
+        except TimeoutError:
+            logger.error("Ollama model not ready — skipping embedding pipelines")
+            await data_task
+            return
+
+        await data_task
+
+        for name, job in embedding_jobs:
             try:
                 await job()
                 logger.info("Startup job finished: %s", name)
             except Exception:
-                # Keep API startup resilient even if upstream data/API is slow or unavailable.
                 logger.exception("Startup job failed: %s", name)
 
     # ---------- RUN ON STARTUP ----------
@@ -454,12 +535,12 @@ async def lifespan(app: FastAPI):
 
     logger.info("Shutting down scheduler")
     scheduler.shutdown(wait=False)
+    await _http_client.aclose()
 
 
 scheduler = AsyncIOScheduler()
 app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 app.add_middleware(InternalTokenMiddleware)
-taxonomy_route = app.get if hasattr(app, "get") else app.post
 
 # Initialize services
 embedding_service = EmbeddingService(tokenizer=TOKENIZER)
@@ -488,7 +569,7 @@ async def search_eu_projects(body: SearchRequest) -> Dict[str, Any]:
     return await _search_collection(body, eu_qdrant_manager)
 
 
-@taxonomy_route("/v1/vocab/german")
+@app.get("/v1/vocab/german")
 async def get_german_taxonomy() -> Dict[str, Any]:
     """Return the current German taxonomy contract artifact."""
     return _load_taxonomy(GERMAN_TAXONOMY_FILE_PATH)
