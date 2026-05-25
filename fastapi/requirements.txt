@@ -7,3 +7,5 @@ transformers==4.57.3
 beautifulsoup4<=4.14.3
 requests<=2.32.5
 apscheduler<=3.11.2
+snowballstemmer>=2.2.0
+stop-words>=2025.1.1
