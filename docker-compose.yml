@@ -56,11 +56,12 @@ services:
     # OLLAMA_NUM_CTX & gpus to use GPU for embedding processing.
     # ------------------------------
     environment:
-      - MODEL=nomic-embed-text
-      # - NVIDIA_VISIBLE_DEVICES=all
-      # - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-      # - OLLAMA_NUM_CTX=2048
-    # gpus: all
+      - MODEL=${MODEL:-bge-m3}
+      - OLLAMA_KEEP_ALIVE=-1
+     # - NVIDIA_VISIBLE_DEVICES=all
+     # - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+     # - OLLAMA_NUM_CTX=2048
+   # gpus: all
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 10s
@@ -94,8 +95,8 @@ services:
       ollama:
         condition: service_healthy
     environment:
-      - MODEL=nomic-embed-text
-      - TOKENIZER=nomic-ai/nomic-embed-text-v1.5
+      - MODEL=${MODEL:-bge-m3}
+      - TOKENIZER=${TOKENIZER:-BAAI/bge-m3}
       - CRON_TRIGGER_GERMAN_DATA_PROCESSING=0
       - CRON_TRIGGER_GERMAN_EMBEDDING=3
       - CRON_TRIGGER_EU_DATA_PROCESSING=1
@@ -118,6 +119,10 @@ services:
       - QDRANT_PORT=6333
       - RUN_STARTUP_PIPELINES_SYNC=false
       - INTERNAL_API_TOKEN=${INTERNAL_API_TOKEN}
+      - BM25_K1=${BM25_K1:-1.2}
+      - ADAPTIVE_CHUNK_THRESHOLD=${ADAPTIVE_CHUNK_THRESHOLD:-600}
+      - TOPK_SCORES=${TOPK_SCORES:-3}
+      - EMBEDDING_CONCURRENCY=${EMBEDDING_CONCURRENCY:-4}
     networks:
       - backend
       - frontend
@@ -146,7 +151,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      - MODEL=nomic-embed-text
+      - MODEL=${MODEL:-bge-m3}
       - FASTAPI_URL=http://fastapi:8000
       - INTERNAL_API_TOKEN=${INTERNAL_API_TOKEN}
       - DB_HOST=postgres
