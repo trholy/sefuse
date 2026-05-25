@@ -167,8 +167,8 @@ def render_german_project_result(result: Dict) -> None:
             "**Last updated:**",
             last_updated.strftime("%d %b %Y, %H:%M")
         )
-    except Exception:
-        pass
+    except (ValueError, TypeError) as exc:
+        logger.debug("Could not parse project dates: %s", exc)
 
     st.markdown(f"**Type of funding:** {safe_join(result.get('funding_type'))}")
     st.markdown(f"**Target area:** {safe_join(result.get('funding_location'))}")
