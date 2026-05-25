@@ -27,9 +27,15 @@ nav:
       - FastAPI Utils: fastapi/utils/fastapi_utils.md
       - Qdrant Utils: fastapi/utils/qdrant_utils.md
   - Streamlit Module:
+      - Home: streamlit/Home.md
+      - Auth:
+          - Handlers: streamlit/auth/handlers.md
+          - Services: streamlit/auth/services.md
+          - Migrate: streamlit/auth/migrate.md
       - Pages:
           - Federal Funding Database: streamlit/pages/1_Federal_Funding_Database.md
           - EU Funding Programs: streamlit/pages/2_EU_Funding_Programs.md
+          - Admin User Management: streamlit/pages/3_Admin_User_Management.md
       - UI:
           - Search Pages: streamlit/ui/search_pages.md
       - Utils: streamlit/utils/utils.md

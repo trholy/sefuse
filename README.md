@@ -43,10 +43,11 @@ The system is based on an embedding model and a **vector database**, which is re
 ### Pipeline
 
 1. **Retrieval of funding programs** from the funding database (regularly updated).
-2. **Extraction & preprocessing** of short descriptions for semantic search.
-3. **User input**: A project description is entered via the web interface.
-4. **Semantic search**: The system identifies relevant funding programs.
-5. **Output**: Matching programs with links to the corresponding funding database entries.
+2. **Extraction & preprocessing** of descriptions — HTML cleaning, field extraction, UUID assignment, Parquet + taxonomy JSON output.
+3. **Embedding pipeline** — adaptive chunking (short documents stay whole, long documents are split at sentence boundaries), contextual headers (title + funding area), dense embedding via Ollama (`bge-m3`), BM25-saturated sparse vectors with German Snowball stemming and compound splitting. Each chunk is stored as its own Qdrant point with both dense and sparse vectors.
+4. **User input**: A project description is entered via the web interface.
+5. **Hybrid search**: Convex Combination (CC) fusion blends dense (semantic) and sparse (keyword) scores, weighted by a user-adjustable slider. Results are aggregated per project using TopK-Avg scoring.
+6. **Output**: Matching programs with scores, metadata, and direct links to the funding database.
 
 ---
 
@@ -88,10 +89,11 @@ qdrant:
     - ./data/qdrant:/qdrant/storage
 ```
 
-Qdrant stores all embedding vectors and metadata.
+Qdrant stores all embedding vectors and metadata using a hybrid schema (dense cosine 768-dim + sparse IDF-modified BM25 vectors). Convex Combination fusion blends both signal types at query time.
 
 * **Persistent storage:** `./data/qdrant`
 * **Port 6333:** Used by FastAPI for similarity search
+* **Payload indexes:** Keyword indexes on `project_uuid` and taxonomy key fields accelerate filter queries
 
 This ensures that embeddings survive container restarts.
 
@@ -107,7 +109,7 @@ ollama:
   volumes:
     - ./ollama/data:/root/.ollama
   environment:
-    - MODEL=nomic-embed-text
+    - MODEL=bge-m3
 ```
 
 Ollama runs the embedding model locally.
@@ -117,7 +119,7 @@ The model is downloaded and cached in `./ollama/data`.
 
 | Variable | Purpose                                                       |
 | -------- | ------------------------------------------------------------- |
-| `MODEL`  | Name of the embedding model to load (e.g. `nomic-embed-text`) |
+| `MODEL`  | Name of the embedding model to load (e.g. `bge-m3`) |
 
 This value must match the `MODEL` used by FastAPI and Streamlit.
 
@@ -137,8 +139,8 @@ fastapi:
     - qdrant
     - ollama
   environment:
-    - MODEL=nomic-embed-text
-    - TOKENIZER=nomic-ai/nomic-embed-text-v1.5
+    - MODEL=bge-m3
+    - TOKENIZER=BAAI/bge-m3
     - CRON_TRIGGER_GERMAN_DATA_PROCESSING=0
     - CRON_TRIGGER_GERMAN_EMBEDDING=3
     - CRON_TRIGGER_EU_DATA_PROCESSING=1
@@ -169,6 +171,15 @@ FastAPI is the **brain of the system**. It:
 | `OLLAMA_URL`                          | Internal Ollama API endpoint                         |
 | `VECTOR_DB_HOST`                      | Qdrant hostname inside Docker                        |
 | `QDRANT_PORT`                         | Qdrant service port                                  |
+| `BM25_K1`                             | BM25 saturation parameter (default `1.2`)            |
+| `ADAPTIVE_CHUNK_THRESHOLD`            | Token count below which docs stay as one chunk (default `600`) |
+| `TOPK_SCORES`                         | Top-K chunk scores averaged per project (default `3`) |
+| `EMBEDDING_CONCURRENCY`               | Number of projects embedded in parallel (default `4`) |
+| `OLLAMA_EMBED_TIMEOUT_SECONDS`        | Per-request embedding timeout in seconds (default `120`) |
+| `OLLAMA_MODEL_READY_INTERVAL`         | Seconds between Ollama readiness probes on startup (default `10`) |
+| `OLLAMA_MODEL_READY_TIMEOUT`          | Max seconds to wait for Ollama before skipping embeddings (default `600`) |
+| `EU_API_KEY`                          | API key for the EU Funding & Tenders Portal search API. `SEDIA` is the [public demo key](https://api.tech.ec.europa.eu/search-api/prod/rest/swagger-ui.html). |
+| `EU_MAX_PAGES`                        | Maximum pages fetched from the EU API per run (default `100`) |
 
 Example:
 
@@ -193,7 +204,7 @@ streamlit:
   depends_on:
     - fastapi
   environment:
-    - MODEL=nomic-embed-text
+    - MODEL=bge-m3
     - FASTAPI_URL=http://fastapi:8000
     - DB_HOST=postgres
     - DB_PORT=5432
@@ -234,11 +245,11 @@ SeFuSe uses a simple username/password login for Streamlit access.
 
 ## How the System Works Together
 
-1. **Ollama** runs the embedding model
-2. **FastAPI** sends text chunks to Ollama and receives vectors
-3. **FastAPI** stores vectors in **Qdrant**
+1. **Ollama** runs the embedding model (`bge-m3`, 1024-dim multilingual)
+2. **FastAPI** chunks documents (adaptive thresholding + sentence-boundary snapping), embeds via Ollama, and builds BM25-saturated sparse vectors with German stemming + compound splitting
+3. **FastAPI** stores both dense and sparse vectors in **Qdrant** as named vectors per point
 4. **Streamlit** sends search queries to **FastAPI**
-5. **FastAPI** performs vector search in **Qdrant**
+5. **FastAPI** embeds the query, performs Convex Combination hybrid search in **Qdrant**, aggregates chunks per project (TopK-Avg), normalizes scores, and applies taxonomy filters
 6. Results are returned to **Streamlit**
 
 All data and models persist on disk through Docker volumes.
@@ -319,6 +330,7 @@ This repository is with clear separation between data storage, data processing, 
 ```
 ./
 ├── .dockerignore
+├── .env.example
 ├── .gitignore
 ├── .gitlab-ci.yml
 ├── LICENSE
@@ -326,6 +338,8 @@ This repository is with clear separation between data storage, data processing, 
 ├── THIRD_PARTY_LICENSES.txt
 ├── data
 │   ├── funding_data
+│   │   ├── .gitkeep
+│   ├── postgres
 │   │   ├── .gitkeep
 │   └── qdrant
 │       ├── .gitkeep
@@ -336,7 +350,8 @@ This repository is with clear separation between data storage, data processing, 
 │   └── src
 │       ├── config
 │       │   ├── __init__.py
-│       │   └── config.py
+│       │   ├── config.py
+│       │   └── eu_constants.py
 │       ├── eu_funding_main.py
 │       ├── german_funding_main.py
 │       ├── processing
@@ -345,12 +360,14 @@ This repository is with clear separation between data storage, data processing, 
 │       │   ├── common_data_pipeline.py
 │       │   ├── eu_funding_processor.py
 │       │   ├── german_funding_processor.py
+│       │   ├── taxonomy_contract_builder.py
 │       │   ├── uuid_generator.py
 │       │   └── value_extractor.py
 │       └── utils
 │           ├── __init__.py
 │           ├── eu_funding_fetcher.py
-│           └── extractor.py
+│           ├── extractor.py
+│           └── german_funding_fetcher.py
 ├── docker-compose.yml
 ├── docs
 │   ├── data_processing
@@ -363,21 +380,30 @@ This repository is with clear separation between data storage, data processing, 
 │   │   │   ├── common_data_pipeline.md
 │   │   │   ├── eu_funding_processor.md
 │   │   │   ├── german_funding_processor.md
+│   │   │   ├── taxonomy_contract_builder.md
 │   │   │   ├── uuid_generator.md
 │   │   │   └── value_extractor.md
 │   │   └── utils
 │   │       ├── eu_funding_fetcher.md
-│   │       └── extractor.md
+│   │       ├── extractor.md
+│   │       └── german_funding_fetcher.md
 │   ├── fastapi
 │   │   ├── main.md
 │   │   └── utils
 │   │       ├── fastapi_utils.md
 │   │       └── qdrant_utils.md
+│   ├── shared
+│   │   └── taxonomy_contract.md
 │   └── streamlit
 │       ├── Home.md
+│       ├── auth
+│       │   ├── handlers.md
+│       │   ├── migrate.md
+│       │   └── services.md
 │       ├── pages
 │       │   ├── 1_Federal_Funding_Database.md
-│       │   └── 2_EU_Funding_Programs.md
+│       │   ├── 2_EU_Funding_Programs.md
+│       │   └── 3_Admin_User_Management.md
 │       ├── ui
 │       │   └── search_pages.md
 │       └── utils
@@ -399,22 +425,67 @@ This repository is with clear separation between data storage, data processing, 
 │   ├── data
 │   │   ├── .gitkeep
 │   └── init_models.sh
-└── streamlit
-    ├── Dockerfile
-    ├── data
-    │   └── .gitkeep
-    ├── requirements.txt
-    └── src
-        ├── Home.py
-        ├── pages
-        │   ├── 1_Federal_Funding_Database.py
-        │   └── 2_EU_Funding_Programs.py
-        ├── ui
-        │   ├── __init__.py
-        │   └── search_pages.py
-        └── utils
-            ├── __init__.py
-            └── utils.py
+├── project_structure.py
+├── shared
+│   ├── __init__.py
+│   └── taxonomy_contract.py
+├── streamlit
+│   ├── .streamlit
+│   │   └── config.toml
+│   ├── Dockerfile
+│   ├── data
+│   │   └── .gitkeep
+│   ├── favicon.jpg
+│   ├── migrations
+│   │   └── 001_auth_schema.sql
+│   ├── requirements.txt
+│   └── src
+│       ├── Home.py
+│       ├── auth
+│       │   ├── __init__.py
+│       │   ├── config.py
+│       │   ├── constants.py
+│       │   ├── db.py
+│       │   ├── exceptions.py
+│       │   ├── handlers.py
+│       │   ├── migrate.py
+│       │   ├── models.py
+│       │   ├── protocols.py
+│       │   ├── repository.py
+│       │   ├── security.py
+│       │   ├── services.py
+│       │   └── session.py
+│       ├── pages
+│       │   ├── 1_Federal_Funding_Database.py
+│       │   ├── 2_EU_Funding_Programs.py
+│       │   └── 3_Admin_User_Management.py
+│       ├── ui
+│       │   ├── __init__.py
+│       │   └── search_pages.py
+│       └── utils
+│           ├── __init__.py
+│           └── utils.py
+└── tests
+    ├── __init__.py
+    ├── _helpers
+    │   ├── __init__.py
+    │   └── module_loader.py
+    ├── test_data_processing
+    │   ├── __init__.py
+    │   ├── test_common_pipeline.py
+    │   ├── test_eu_processor_fetcher.py
+    │   ├── test_io_utils.py
+    │   ├── test_main_pipelines.py
+    │   └── test_processing_core.py
+    ├── test_fastapi
+    │   ├── __init__.py
+    │   ├── test_fastapi_utils.py
+    │   ├── test_main.py
+    │   └── test_qdrant_utils.py
+    └── test_streamlit
+        ├── __init__.py
+        ├── test_search_pages.py
+        └── test_utils.py
 ```
 
 ---

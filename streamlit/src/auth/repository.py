@@ -7,6 +7,7 @@ from .models import UserRecord, UserSummary
 
 
 def _to_user_record(row: dict) -> UserRecord:
+    """Map a `RealDictCursor` row (including `password_hash`) to a `UserRecord`."""
     return UserRecord(
         id=row["id"],
         username=row["username"],
@@ -19,6 +20,7 @@ def _to_user_record(row: dict) -> UserRecord:
 
 
 def _to_user_summary(row: dict) -> UserSummary:
+    """Map a `RealDictCursor` row (without `password_hash`) to a `UserSummary`."""
     return UserSummary(
         id=row["id"],
         username=row["username"],

@@ -24,7 +24,7 @@ class BaseFundingSearchPage(ABC):
 
     Args:
         model (str | None, default=None): Embedding model name; falls back to the
-            `MODEL` environment variable (`"nomic-embed-text"`).
+            `MODEL` environment variable (`"bge-m3"`).
         fastapi_url (str | None, default=None): FastAPI base URL; falls back to the
             `FASTAPI_URL` environment variable (`"http://fastapi:8000"`).
     """
@@ -34,7 +34,7 @@ class BaseFundingSearchPage(ABC):
         model: str | None = None,
         fastapi_url: str | None = None,
     ):
-        self.model = model or os.getenv("MODEL", "nomic-embed-text")
+        self.model = model or os.getenv("MODEL", "bge-m3")
         self.fastapi_url = fastapi_url or os.getenv(
             "FASTAPI_URL",
             "http://fastapi:8000",
