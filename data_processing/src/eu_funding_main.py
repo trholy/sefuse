@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 def _load_or_fetch_open_calls(
     config: EuFundingConfig,
     fetcher: EuFundingFetcher,
+    max_pages: int | None = None,
 ) -> list[dict]:
     """Fetch EU calls from the API, falling back to the cached JSON on network errors.
 
@@ -29,6 +30,7 @@ def _load_or_fetch_open_calls(
     Args:
         config (EuFundingConfig): Pipeline configuration with API settings and file paths.
         fetcher (EuFundingFetcher): Configured fetcher instance.
+        max_pages (int | None, default=None): Maximum pages to fetch; ``None`` means no limit.
 
     Returns:
         list[dict]: Open/forthcoming EU call records (live or cached).
@@ -39,6 +41,7 @@ def _load_or_fetch_open_calls(
     try:
         calls = fetcher.fetch_open_and_forthcoming_calls(
             page_size=config.page_size,
+            max_pages=max_pages,
         )
         fetcher.save(calls, config.raw_json)
         return calls
@@ -74,7 +77,7 @@ def run_eu_funding_pipeline() -> None:
         page_delay_seconds=config.page_delay_seconds,
     )
 
-    eu_calls = _load_or_fetch_open_calls(config, fetcher)
+    eu_calls = _load_or_fetch_open_calls(config, fetcher, max_pages=config.max_pages)
 
     eu_processor = EuFundingProcessor(html_cleaner=HtmlCleaner())
     eu_df = eu_processor.transform(eu_calls)

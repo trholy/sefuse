@@ -107,7 +107,7 @@ services:
       - EU_EXTRACTED_FILE_PATH=data/eu_parquet_data_uuid.parquet
       - GERMAN_FUNDING_DATA_URL=https://foerderdatenbankdump.fra1.cdn.digitaloceanspaces.com/data/parquet_data.zip
       - EU_API_URL=https://api.tech.ec.europa.eu/search-api/prod/rest/search
-      - EU_API_KEY=SEDIA
+      - EU_API_KEY=${EU_API_KEY}
       - EU_PAGE_SIZE=50
       - EU_MAX_PAGES=100
       - EU_REQUEST_TIMEOUT_SECONDS=30

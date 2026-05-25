@@ -159,13 +159,17 @@ class EuFundingFetcher:
     def fetch_open_and_forthcoming_calls(
         self,
         page_size: int = 50,
+        max_pages: int | None = None,
     ) -> list[dict]:
         """Fetch all open and forthcoming English EU calls by paginating the API.
 
-        Stops when a page returns no results.
+        Stops when a page returns no results or `max_pages` is reached.
 
         Args:
             page_size (int, default=50): Number of results to request per API page.
+            max_pages (int | None, default=None): Maximum number of pages to fetch.
+                ``None`` means no limit. Use this as a safety guard against
+                runaway pagination if the API changes behaviour.
 
         Returns:
             list[dict]: Normalised call records filtered to OPEN/FORTHCOMING + English.
@@ -174,6 +178,11 @@ class EuFundingFetcher:
         page = 1
 
         while True:
+            if max_pages is not None and page > max_pages:
+                logger.warning(
+                    "EU fetch: reached max_pages=%s, stopping pagination.", max_pages
+                )
+                break
             items = self._fetch_page(page, page_size)
             if not items:
                 break
