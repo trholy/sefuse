@@ -1,6 +1,8 @@
+import asyncio
 import time
 import os
 import logging
+import uuid
 from itertools import islice
 from typing import List, Optional
 
@@ -11,13 +13,15 @@ from transformers import AutoTokenizer
 from .qdrant_utils import QdrantManager
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
 
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
-EMBED_MODEL = os.getenv('MODEL', 'nomic-embed-text')
-TOKENIZER = os.getenv('TOKENIZER', 'nomic-ai/nomic-embed-text-v1.5')
+EMBED_MODEL = os.getenv('MODEL', 'bge-m3')
+TOKENIZER = os.getenv('TOKENIZER', 'BAAI/bge-m3')
 OLLAMA_EMBED_TIMEOUT_SECONDS = float(os.getenv("OLLAMA_EMBED_TIMEOUT_SECONDS", "120"))
+ADAPTIVE_CHUNK_THRESHOLD = int(os.getenv("ADAPTIVE_CHUNK_THRESHOLD", "600"))
+EMBEDDING_CONCURRENCY = int(os.getenv("EMBEDDING_CONCURRENCY", "4"))
+PAYLOAD_EXCLUDE_FIELDS = {"description"}
 
 
 def chunked(iterable, size: int):
@@ -30,7 +34,6 @@ def chunked(iterable, size: int):
     Yields:
         list: Successive sublists of at most `size` elements.
     """
-    """Yield successive chunks of given size from iterable."""
     it = iter(iterable)
     while chunk := list(islice(it, size)):
         yield chunk
@@ -58,13 +61,13 @@ def load_funding_data(
     Raises:
         FileNotFoundError: If the file is still absent after all retries.
     """
-    """Read a Parquet file with retries if the file is not ready yet."""
     for attempt in range(1, retries + 1):
         try:
             return pl.read_parquet(file_path)
-        except FileNotFoundError:
+        except Exception as exc:
             logger.info(
-                f"File not found (attempt {attempt}/{retries}): {file_path}"
+                "Failed to read parquet (attempt %s/%s, %s): %s",
+                attempt, retries, type(exc).__name__, file_path,
             )
             if attempt == retries:
                 raise
@@ -81,8 +84,8 @@ class EmbeddingService:
     Args:
         ollama_url (str, default=OLLAMA_URL): Base URL of the Ollama API.
         model (str, default=EMBED_MODEL): Ollama model name used for embedding.
-        max_tokens (int, default=384): Maximum tokens per chunk.
-        overlap_tokens (int, default=96): Token overlap between consecutive chunks.
+        max_tokens (int, default=512): Maximum tokens per chunk.
+        overlap_tokens (int, default=62): Token overlap between consecutive chunks.
         tokenizer (str, default=TOKENIZER): HuggingFace tokenizer identifier for
             chunk boundary calculation.
 
@@ -97,8 +100,8 @@ class EmbeddingService:
             self,
             ollama_url: str = OLLAMA_URL,
             model: str = EMBED_MODEL,
-            max_tokens: int = 384,
-            overlap_tokens: int = 96,
+            max_tokens: int = 512,
+            overlap_tokens: int = 62,
             tokenizer: str = TOKENIZER
     ):
         self.ollama_url = ollama_url
@@ -106,7 +109,6 @@ class EmbeddingService:
         self.max_tokens = max_tokens
         self.overlap_tokens = overlap_tokens
 
-        # Tokenizer for nomic-embed-text
         self.tokenizer = AutoTokenizer.from_pretrained(
             tokenizer,
             use_fast=True
@@ -114,6 +116,11 @@ class EmbeddingService:
 
     def chunk_text(self, text: str) -> List[str]:
         """Split text into overlapping token-based chunks.
+
+        Short documents (≤ ADAPTIVE_CHUNK_THRESHOLD tokens) are returned as a
+        single chunk to avoid semantically impoverished tail fragments.
+        Non-final chunks are trimmed to the last sentence boundary in their
+        trailing quarter to prevent mid-sentence splits.
 
         Args:
             text (str): Input text to split.
@@ -123,6 +130,10 @@ class EmbeddingService:
                 with `overlap_tokens` overlap between adjacent chunks.
         """
         tokens = self.tokenizer.encode(text, add_special_tokens=False)
+
+        if len(tokens) <= ADAPTIVE_CHUNK_THRESHOLD:
+            return [text]
+
         chunks = []
 
         start = 0
@@ -130,8 +141,14 @@ class EmbeddingService:
             end = start + self.max_tokens
             chunk_tokens = tokens[start:end]
 
-            chunk_text = self.tokenizer.decode(chunk_tokens)
-            chunks.append(chunk_text)
+            decoded = self.tokenizer.decode(chunk_tokens)
+
+            if end < len(tokens):
+                three_quarter = (end - start) * 3 // 4
+                min_keep_chars = len(self.tokenizer.decode(tokens[start : start + three_quarter]))
+                decoded = self._snap_to_sentence(decoded, min_keep_chars)
+
+            chunks.append(decoded)
 
             if end >= len(tokens):
                 break
@@ -139,6 +156,36 @@ class EmbeddingService:
             start = end - self.overlap_tokens
 
         return chunks
+
+    @staticmethod
+    def _snap_to_sentence(text: str, min_keep_chars: int) -> str:
+        """Trim text to the last sentence boundary after `min_keep_chars`.
+
+        Searches the region beyond `min_keep_chars` for sentence-ending markers
+        (``. ``, ``? ``, ``! `` and their newline variants) and truncates at the
+        last one found. If no boundary exists, the text is returned unchanged.
+
+        `min_keep_chars` is computed by the caller from the 75% token boundary,
+        so the cut-off aligns with token space rather than character space.
+
+        Args:
+            text (str): Decoded chunk text to trim.
+            min_keep_chars (int): Minimum number of characters to preserve;
+                derived from decoding the first 75% of the chunk's tokens.
+
+        Returns:
+            str: Text truncated at the last sentence boundary, or the
+                original text if no boundary is found after `min_keep_chars`.
+        """
+        search_region = text[min_keep_chars:]
+        best = -1
+        for marker in (". ", "? ", "! ", ".\n", "?\n", "!\n"):
+            pos = search_region.rfind(marker)
+            if pos > best:
+                best = pos
+        if best >= 0:
+            return text[:min_keep_chars + best + 1]
+        return text
 
     async def fetch_embedding(
         self,
@@ -156,12 +203,16 @@ class EmbeddingService:
         """
         try:
             resp = await client.post(
-                f"{self.ollama_url}/api/embeddings",
-                json={"model": self.model, "prompt": text},
+                f"{self.ollama_url}/api/embed",
+                json={"model": self.model, "input": text},
                 timeout=OLLAMA_EMBED_TIMEOUT_SECONDS
             )
             resp.raise_for_status()
-            return resp.json().get("embedding")
+            data = resp.json()
+            embeddings = data.get("embeddings")
+            if embeddings and len(embeddings) > 0:
+                return embeddings[0]
+            return None
         except httpx.HTTPError as e:
             logger.error(f"Embedding request failed: {e}")
             return None
@@ -201,7 +252,7 @@ class Pipeline:
         upserts them into the Qdrant collection.
         """
         df = self._load_and_normalize_data()
-        existing_ids = set(self._fetch_existing_ids())
+        existing_ids = set(self._fetch_existing_project_ids())
 
         ids_to_delete = set(self._delete_removed_projects(df, existing_ids))
 
@@ -273,11 +324,17 @@ class Pipeline:
         metadata_list = new_rows.to_dicts()
         ids = new_rows["uuid"].to_list()
 
+        semaphore = asyncio.Semaphore(EMBEDDING_CONCURRENCY)
+
+        async def _bounded(client: httpx.AsyncClient, desc: str, meta: dict, pid: str) -> None:
+            async with semaphore:
+                await self._process_single_project(client, desc, meta, pid)
+
         async with httpx.AsyncClient() as client:
-            for desc, meta, project_id in zip(descriptions, metadata_list, ids):
-                await self._process_single_project(
-                    client, desc, meta, project_id
-                )
+            await asyncio.gather(*(
+                _bounded(client, desc, meta, pid)
+                for desc, meta, pid in zip(descriptions, metadata_list, ids)
+            ))
 
     async def _process_single_project(
             self,
@@ -288,88 +345,92 @@ class Pipeline:
     ) -> None:
         """Chunk, embed, and upsert a single project into Qdrant.
 
+        Each chunk gets a unique point ID (``{project_id}_chunk_{i}``), a
+        contextual header (title + funding area). The enriched chunk text is
+        passed separately for sparse vector construction.
+
         Args:
             client (httpx.AsyncClient): Shared async HTTP client for Ollama requests.
             description (str): Full project description text to embed.
             metadata (dict): Payload dict stored alongside each point in Qdrant.
-            project_id (str): UUID used as the Qdrant point ID.
+            project_id (str): UUID used as the base for Qdrant point IDs.
         """
         text_chunks = self.embed_service.chunk_text(description)
 
-        embeddings = await self._generate_embeddings(client, text_chunks)
+        title = metadata.get("title", "N/A")
+        funding_area = metadata.get("funding_area", [])
+        if isinstance(funding_area, list) and funding_area:
+            area_str = ", ".join(str(a) for a in funding_area)
+            header = f"Title: {title}\nFunding area: {area_str}\n\n"
+        else:
+            header = f"Title: {title}\n\n"
 
-        if not embeddings:
+        enriched_chunks = [f"{header}{chunk}" for chunk in text_chunks]
+
+        indexed_embeddings = []
+        for i, enriched_chunk in enumerate(enriched_chunks):
+            emb = await self.embed_service.fetch_embedding(
+                client, enriched_chunk
+            )
+            if emb is not None:
+                indexed_embeddings.append((i, emb))
+
+        if not indexed_embeddings:
             logger.warning(f"No embeddings generated for project {project_id}")
             return
 
-        self._insert_project_embeddings(embeddings, metadata, project_id)
+        project_ns = uuid.UUID(project_id)
+        chunk_ids = [str(uuid.uuid5(project_ns, f"chunk_{i}")) for i, _ in indexed_embeddings]
+        embeddings = [emb for _, emb in indexed_embeddings]
+        chunk_texts = [enriched_chunks[i] for i, _ in indexed_embeddings]
 
-        logger.info(
-            f"Inserted {len(embeddings)} embeddings for project {project_id}"
-        )
+        chunk_metadata = []
+        for i, _ in indexed_embeddings:
+            meta = {k: v for k, v in metadata.items() if k not in PAYLOAD_EXCLUDE_FIELDS}
+            meta["project_uuid"] = project_id
+            meta["chunk_index"] = i
+            chunk_metadata.append(meta)
 
-    async def _generate_embeddings(
-            self,
-            client: httpx.AsyncClient,
-            chunks: list[str],
-    ) -> list[list[float]]:
-        """Fetch dense embedding vectors for each text chunk from Ollama.
-
-        Chunks that fail to embed are silently skipped.
-
-        Args:
-            client (httpx.AsyncClient): Shared async HTTP client.
-            chunks (list[str]): Text chunks produced by ``EmbeddingService.chunk_text``.
-
-        Returns:
-            list[list[float]]: Successfully generated embedding vectors.
-        """
-        embeddings = []
-
-        for chunk in chunks:
-            emb = await self.embed_service.fetch_embedding(client, chunk)
-            if emb is not None:
-                embeddings.append(emb)
-
-        return embeddings
-
-    def _insert_project_embeddings(
-            self,
-            embeddings: list[list[float]],
-            metadata: dict,
-            project_id: str,
-    ) -> None:
         self.qdrant.insert_projects(
             embeddings=embeddings,
-            metadata_list=[metadata] * len(embeddings),
-            ids=[project_id] * len(embeddings),
+            metadata_list=chunk_metadata,
+            ids=chunk_ids,
+            chunk_texts=chunk_texts,
         )
 
-    def _fetch_existing_ids(self) -> List[str]:
-        """Scroll through the entire Qdrant collection and return all point IDs.
+        logger.info(
+            f"Inserted {len(indexed_embeddings)} chunks for project {project_id}"
+        )
 
-        Uses paginated scrolling (256 points per page) with no payload or
-        vector data to minimise memory and network overhead.
+    def _fetch_existing_project_ids(self) -> list[str]:
+        """Scroll the Qdrant collection and return unique project UUIDs.
+
+        Reads the ``project_uuid`` payload field from each point. For legacy
+        points that lack this field (pre-migration), the point ID itself is
+        used as a fallback.
 
         Returns:
-            List[str]: All point IDs currently stored in the collection.
-                Returns an empty list if the scroll fails.
+            list[str]: Deduplicated project UUIDs currently indexed.
         """
-        all_ids = []
+        project_ids: set[str] = set()
         offset = None
         try:
             while True:
                 points, offset = self.qdrant.client.scroll(
                     collection_name=self.qdrant.collection_name,
                     limit=256,
-                    with_payload=False,
+                    with_payload=["project_uuid"],
                     with_vectors=False,
                     offset=offset,
                 )
-                all_ids.extend([str(p.id) for p in points])
+                for p in points:
+                    if p.payload and "project_uuid" in p.payload:
+                        project_ids.add(p.payload["project_uuid"])
+                    else:
+                        project_ids.add(str(p.id))
                 if offset is None:
                     break
-            logger.info(f"Fetched {len(all_ids)} existing IDs from Qdrant")
+            logger.info(f"Fetched {len(project_ids)} existing project IDs from Qdrant")
         except Exception as e:
-            logger.error(f"Error fetching existing IDs: {e}")
-        return all_ids
+            logger.error(f"Error fetching existing project IDs: {e}")
+        return list(project_ids)
