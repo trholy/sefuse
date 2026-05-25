@@ -53,7 +53,6 @@ class CommonDataPipeline:
         data_dir: Path,
         taxonomy_path: Path,
         export_columns: list[str] | None = None,
-        export_file_prefix: str = "",
         columns_to_drop_before_store: list[str] | None = None,
         taxonomy_domain: str = "german",
     ) -> None:
@@ -73,7 +72,6 @@ class CommonDataPipeline:
             taxonomy_path (Path): Destination for the taxonomy JSON artifact.
             export_columns (list[str] | None, default=None): Taxonomy columns to
                 canonicalise. Defaults to `DEFAULT_EXPORT_COLUMNS`.
-            export_file_prefix (str, default=""): Unused prefix kept for API compatibility.
             columns_to_drop_before_store (list[str] | None, default=None): Columns
                 to remove from both output Parquet files before writing.
             taxonomy_domain (str, default="german"): Domain label embedded in the
