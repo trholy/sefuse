@@ -6,7 +6,7 @@ from .config import AuthSettings
 from .exceptions import ValidationError
 
 USERNAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{4,16}$")
-DUMMY_BCRYPT_HASH = "$2b$12$wP8v2D3Y1IK6otD8QmVfQeTHkFnNf2u8J2RIPfpaF.6vP5lSIlm2."
+DUMMY_BCRYPT_HASH: str = bcrypt.hashpw(b"__sentinel__", bcrypt.gensalt()).decode()
 
 
 def normalize_username(username: str) -> str:

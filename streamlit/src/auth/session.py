@@ -1,8 +1,9 @@
-import os
 import time
+from functools import lru_cache
 
 import streamlit as st
 
+from .config import load_auth_settings
 from .constants import (
     ROLE_ADMIN,
     SESSION_AUTHENTICATED,
@@ -13,7 +14,10 @@ from .constants import (
 )
 from .models import UserRecord
 
-_SESSION_TIMEOUT_SECONDS = int(os.getenv("SESSION_TIMEOUT_MINUTES", "30")) * 60
+
+@lru_cache(maxsize=1)
+def _get_session_timeout_seconds() -> int:
+    return load_auth_settings().session_timeout_minutes * 60
 
 
 def initialize_session_state() -> None:
@@ -48,8 +52,8 @@ def clear_authenticated_user() -> None:
 def _is_session_expired() -> bool:
     """Check whether the current session has exceeded the inactivity timeout.
 
-    The timeout is controlled by the ``SESSION_TIMEOUT_MINUTES`` environment
-    variable (default 30). A missing login timestamp is treated as expired.
+    The timeout is read from `AuthSettings.session_timeout_minutes` (default 30).
+    A missing login timestamp is treated as expired.
 
     Returns:
         bool: True if the session is expired or no login time is recorded.
@@ -57,16 +61,20 @@ def _is_session_expired() -> bool:
     login_time = st.session_state.get(SESSION_LOGIN_TIME)
     if login_time is None:
         return True
-    return (time.time() - login_time) > _SESSION_TIMEOUT_SECONDS
+    return (time.time() - login_time) > _get_session_timeout_seconds()
 
 
 def is_authenticated() -> bool:
-    """Return True if the current session has a logged-in user whose session has not expired."""
+    """Return True if the current session has a logged-in user whose session has not expired.
+
+    Refreshes the activity timestamp on every successful check (sliding window).
+    """
     if not st.session_state.get(SESSION_AUTHENTICATED, False):
         return False
     if _is_session_expired():
         clear_authenticated_user()
         return False
+    st.session_state[SESSION_LOGIN_TIME] = time.time()
     return True
 
 
