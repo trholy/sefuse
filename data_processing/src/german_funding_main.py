@@ -61,7 +61,6 @@ def run_german_funding_pipeline() -> None:
         cleaned_path=config.cleaned_parquet,
         uuid_path=config.uuid_parquet,
         source_column="id_hash",
-        export_file_prefix="german_",
         data_dir=config.data_dir,
         taxonomy_path=config.taxonomy_json,
         taxonomy_domain="german",

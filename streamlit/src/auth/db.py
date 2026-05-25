@@ -2,7 +2,6 @@ from contextlib import contextmanager
 from typing import Iterator
 
 import psycopg2
-from psycopg2.extras import RealDictCursor
 
 from .config import AuthSettings
 
@@ -42,14 +41,4 @@ class Database:
         finally:
             connection.close()
 
-    @contextmanager
-    def dict_cursor(self) -> Iterator[RealDictCursor]:
-        """Open a connection and yield a `RealDictCursor` that returns rows as dicts.
-
-        Yields:
-            RealDictCursor: Cursor whose `fetchone`/`fetchall` return `dict`-like rows.
-        """
-        with self.connection() as connection:
-            with connection.cursor(cursor_factory=RealDictCursor) as cursor:
-                yield cursor
 
