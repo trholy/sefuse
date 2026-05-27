@@ -1,3 +1,5 @@
+"""Builds and serialises the taxonomy contract (canonical values, keys, artifact JSON)."""
+
 from __future__ import annotations
 
 import hashlib

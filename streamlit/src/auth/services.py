@@ -32,6 +32,13 @@ class AuthenticationService:
         password_hasher: PasswordHasher,
         settings: AuthSettings,
     ):
+        """Initialise the authentication service.
+
+        Args:
+            repository (UserRepositoryProtocol): Data-access layer for user records.
+            password_hasher (PasswordHasher): bcrypt hasher for creating and verifying hashes.
+            settings (AuthSettings): Application auth configuration.
+        """
         self._repository = repository
         self._password_hasher = password_hasher
         self._settings = settings
@@ -155,6 +162,13 @@ class UserManagementService:
         password_hasher: PasswordHasher,
         settings: AuthSettings,
     ):
+        """Initialise the user management service.
+
+        Args:
+            repository (UserRepositoryProtocol): Data-access layer for user records.
+            password_hasher (PasswordHasher): bcrypt hasher used when updating passwords.
+            settings (AuthSettings): Application auth configuration.
+        """
         self._repository = repository
         self._password_hasher = password_hasher
         self._settings = settings

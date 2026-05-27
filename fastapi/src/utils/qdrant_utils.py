@@ -124,6 +124,16 @@ class QdrantManager:
             port: int = QDRANT_PORT,
             collection_name: str = "fundings"
     ):
+        """Connect to Qdrant and ensure the named collection is hybrid-search ready.
+
+        Args:
+            host (str, optional): Qdrant server hostname. Defaults to the
+                ``VECTOR_DB_HOST`` environment variable.
+            port (int, optional): Qdrant HTTP/gRPC port. Defaults to the
+                ``QDRANT_PORT`` environment variable.
+            collection_name (str, optional): Name of the collection to manage.
+                Defaults to ``"fundings"``.
+        """
         self.host = host
         self.port = port
         self.collection_name = collection_name
@@ -391,9 +401,8 @@ class QdrantManager:
     def delete_projects(self, project_uuids: List[str]) -> None:
         """Delete all Qdrant points belonging to the given project UUIDs.
 
-        Performs two deletions: a ``FilterSelector`` on the ``project_uuid``
-        payload field (for chunked points) and a direct point-ID deletion
-        (for legacy pre-migration points). No-op for an empty list.
+        Uses a ``FilterSelector`` on the ``project_uuid`` payload field to
+        remove all chunk-points associated with each UUID. No-op for an empty list.
 
         Args:
             project_uuids (List[str]): Project UUIDs whose points should be

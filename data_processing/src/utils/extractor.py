@@ -1,3 +1,5 @@
+"""ZIP archive extraction utility for the German funding pipeline."""
+
 import zipfile
 from pathlib import Path
 

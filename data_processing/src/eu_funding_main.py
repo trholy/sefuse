@@ -1,3 +1,5 @@
+"""Entry point for the EU funding data pipeline (fetch → process → store)."""
+
 import logging
 import uuid
 

@@ -1,3 +1,5 @@
+"""Entry point for the German federal funding data pipeline (download → extract → process → store)."""
+
 import uuid
 import logging
 

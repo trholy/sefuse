@@ -17,6 +17,11 @@ from .models import UserRecord
 
 @lru_cache(maxsize=1)
 def _get_session_timeout_seconds() -> int:
+    """Return the session timeout converted from minutes to seconds (cached).
+
+    Returns:
+        int: Session timeout in seconds derived from ``SESSION_TIMEOUT_MINUTES``.
+    """
     return load_auth_settings().session_timeout_minutes * 60
 
 
@@ -68,6 +73,9 @@ def is_authenticated() -> bool:
     """Return True if the current session has a logged-in user whose session has not expired.
 
     Refreshes the activity timestamp on every successful check (sliding window).
+
+    Returns:
+        bool: True if authenticated and the session is still active.
     """
     if not st.session_state.get(SESSION_AUTHENTICATED, False):
         return False
@@ -79,12 +87,20 @@ def is_authenticated() -> bool:
 
 
 def is_admin() -> bool:
-    """Return True if the current session user has the admin role."""
+    """Return True if the current session user has the admin role.
+
+    Returns:
+        bool: True if the session role is ``"admin"``.
+    """
     return st.session_state.get(SESSION_ROLE) == ROLE_ADMIN
 
 
 def get_bootstrap_flag() -> bool:
-    """Return True if the auth system has already been bootstrapped this session."""
+    """Return True if the auth system has already been bootstrapped this session.
+
+    Returns:
+        bool: True once `bootstrap_auth_system` has completed for this session.
+    """
     return bool(st.session_state.get(SESSION_BOOTSTRAPPED, False))
 
 

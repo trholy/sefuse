@@ -5,6 +5,18 @@ from .exceptions import ConfigurationError
 
 
 def _read_bool(name: str, default: bool) -> bool:
+    """Read an environment variable and coerce it to a boolean.
+
+    Args:
+        name (str): Environment variable name.
+        default (bool): Value to return when the variable is unset.
+
+    Returns:
+        bool: Parsed boolean value.
+
+    Raises:
+        ConfigurationError: If the variable is set but not a recognised truthy/falsy string.
+    """
     raw = os.getenv(name)
     if raw is None:
         return default
@@ -17,6 +29,20 @@ def _read_bool(name: str, default: bool) -> bool:
 
 
 def _read_int(name: str, default: int, minimum: int = 1) -> int:
+    """Read an environment variable and coerce it to an integer with a minimum bound.
+
+    Args:
+        name (str): Environment variable name.
+        default (int): Value to return when the variable is unset.
+        minimum (int, optional): Inclusive lower bound for the parsed value. Defaults to 1.
+
+    Returns:
+        int: Parsed integer value.
+
+    Raises:
+        ConfigurationError: If the variable is set but cannot be parsed as an integer,
+            or if the parsed value is below `minimum`.
+    """
     raw = os.getenv(name)
     if raw is None:
         return default
@@ -34,6 +60,20 @@ class AuthSettings:
     """Immutable auth configuration resolved from environment variables.
 
     All fields are populated by `load_auth_settings`; do not instantiate directly.
+
+    Attributes:
+        enabled (bool): Whether authentication is active (``AUTH_ENABLED``).
+        db_host (str): PostgreSQL host (``DB_HOST``).
+        db_port (int): PostgreSQL port (``DB_PORT``).
+        db_name (str): Database name (``DB_NAME``).
+        db_user (str): Database user (``DB_USER``).
+        db_password (str): Database password (``DB_PASSWORD``).
+        db_connect_timeout_seconds (int): psycopg2 connection timeout (``DB_CONNECT_TIMEOUT_SECONDS``).
+        admin_username (str): Bootstrap admin username (``ADMIN_USERNAME``).
+        admin_password (str): Bootstrap admin password (``ADMIN_PASSWORD``).
+        bcrypt_rounds (int): bcrypt cost factor; minimum 4 (``BCRYPT_ROUNDS``).
+        password_min_length (int): Minimum password length enforced at creation (``PASSWORD_MIN_LENGTH``).
+        session_timeout_minutes (int): Idle session expiry in minutes (``SESSION_TIMEOUT_MINUTES``).
     """
 
     enabled: bool

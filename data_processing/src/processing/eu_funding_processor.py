@@ -1,3 +1,5 @@
+"""Transforms raw EU call dicts into a typed Polars DataFrame."""
+
 import hashlib
 from datetime import datetime
 
@@ -47,7 +49,7 @@ EU_COMMON_SCHEMA = {
 
 
 class EuFundingProcessor:
-    """Transforms raw EU call dicts from the SEDIA API into a typed Polars DataFrame.
+    """Transforms raw EU call dicts from the API into a typed Polars DataFrame.
 
     Filters out closed/non-English calls, normalises field types, and builds the
     shared `EU_COMMON_SCHEMA` used by downstream pipeline steps.
@@ -61,10 +63,16 @@ class EuFundingProcessor:
     """
 
     def __init__(self, html_cleaner: HtmlCleaner):
+        """Initialise an EuFundingProcessor backed by `html_cleaner`.
+
+        Args:
+            html_cleaner (HtmlCleaner): Used to strip HTML from summary and description fields.
+        """
         self._html_cleaner = html_cleaner
 
     @staticmethod
     def _normalize_string(value: object) -> str | None:
+        """Coerce `value` to a stripped string, returning ``None`` for blank inputs."""
         if value is None:
             return None
 
@@ -73,10 +81,12 @@ class EuFundingProcessor:
 
     @staticmethod
     def _parse_status(status_code: str) -> bool:
+        """Return ``True`` (deleted) when `status_code` is not an active EU status."""
         return status_code not in EU_ACTIVE_STATUS_CODES
 
     @staticmethod
     def _normalize_list(value: object) -> list[str]:
+        """Coerce a scalar, collection, or ``None`` to a list of non-empty stripped strings."""
         if value is None:
             return []
 
@@ -92,6 +102,7 @@ class EuFundingProcessor:
 
     @staticmethod
     def _parse_datetime(value: object) -> datetime | None:
+        """Parse an ISO 8601 datetime string to a timezone-naive ``datetime``, or ``None``."""
         raw = EuFundingProcessor._normalize_string(value)
         if raw is None:
             return None
@@ -108,6 +119,7 @@ class EuFundingProcessor:
         identifier: str | None,
         call_id: str | None,
     ) -> list[str]:
+        """Deduplicate `keywords`, removing entries that match the call `identifier` or `call_id`."""
         blocked = {
             value
             for value in (identifier, call_id)
@@ -128,10 +140,12 @@ class EuFundingProcessor:
 
     @staticmethod
     def _compute_id_hash(uuid_source: str) -> str:
+        """Return the MD5 hex digest of `uuid_source` as a stable row identifier."""
         return hashlib.md5(uuid_source.encode("utf-8")).hexdigest()
 
     @staticmethod
     def _is_allowed_status(status_code: str | None) -> bool:
+        """Return ``True`` when `status_code` is OPEN or FORTHCOMING."""
         return status_code in EU_ACTIVE_STATUS_CODES
 
     def _should_keep_item(
@@ -143,6 +157,7 @@ class EuFundingProcessor:
         deadline: datetime | None,
         status_code: str | None,
     ) -> bool:
+        """Return ``True`` when a call passes status, description-length, and keyword checks."""
         if not self._is_allowed_status(status_code):
             return False
         if len(cleaned_description_html.strip()) < MIN_DESCRIPTION_LENGTH:

@@ -30,11 +30,13 @@ from .session import (
 
 @lru_cache(maxsize=1)
 def _get_settings() -> AuthSettings:
+    """Return the cached `AuthSettings` instance loaded from environment variables."""
     return load_auth_settings()
 
 
 @lru_cache(maxsize=1)
 def _get_authentication_service() -> AuthenticationService:
+    """Return the cached `AuthenticationService` wired to the current settings."""
     settings = _get_settings()
     database = Database(settings)
     repository = PostgresUserRepository(database)
@@ -44,6 +46,7 @@ def _get_authentication_service() -> AuthenticationService:
 
 @lru_cache(maxsize=1)
 def _get_user_management_service() -> UserManagementService:
+    """Return the cached `UserManagementService` wired to the current settings."""
     settings = _get_settings()
     database = Database(settings)
     repository = PostgresUserRepository(database)

@@ -21,6 +21,12 @@ st.set_page_config(
 
 
 def _render_create_user() -> None:
+    """Render the Create User form and create a new account on submit.
+
+    Displays username and password fields. On successful submission calls
+    ``create_user`` and triggers a page rerun; on failure shows an error message
+    via ``st.error``.
+    """
     st.subheader("Create User")
     with st.form("create_user_form", clear_on_submit=True):
         username = st.text_input("Username", key="create_username")
@@ -41,6 +47,16 @@ def _render_create_user() -> None:
 
 
 def _render_update_password(usernames: list[str]) -> None:
+    """Render the Update Password form and apply the change on submit.
+
+    Args:
+        usernames (list[str]): All current usernames, shown in a selectbox so the
+            admin can choose whose password to change.
+
+    Displays a selectbox and new-password field. On successful submission calls
+    ``update_password`` and triggers a page rerun; on failure shows an error message
+    via ``st.error``.
+    """
     st.subheader("Update Password")
     with st.form("update_password_form", clear_on_submit=True):
         username = st.selectbox("Username", usernames, key="update_username")
@@ -65,6 +81,17 @@ def _render_update_password(usernames: list[str]) -> None:
 
 
 def _render_delete_user(deletable_usernames: list[str]) -> None:
+    """Render the Delete User form and permanently remove an account on confirmed submit.
+
+    Args:
+        deletable_usernames (list[str]): Non-admin usernames eligible for deletion.
+            When empty, renders an informational message and returns immediately.
+
+    Displays a selectbox, a confirmation checkbox, and a submit button. Requires the
+    confirmation checkbox to be ticked before deletion proceeds. On successful
+    submission calls ``delete_user`` and triggers a page rerun; on failure shows an
+    error message via ``st.error``.
+    """
     st.subheader("Delete User")
     if not deletable_usernames:
         st.info("No non-admin users available for deletion.")

@@ -104,6 +104,21 @@ class EmbeddingService:
             overlap_tokens: int = 62,
             tokenizer: str = TOKENIZER
     ):
+        """Initialise the embedding service and load the HuggingFace tokenizer.
+
+        Args:
+            ollama_url (str, optional): Base URL of the Ollama API.
+                Defaults to the ``OLLAMA_URL`` environment variable.
+            model (str, optional): Ollama model name used for embedding.
+                Defaults to the ``MODEL`` environment variable.
+            max_tokens (int, optional): Maximum tokens per chunk window.
+                Defaults to 512.
+            overlap_tokens (int, optional): Token overlap between adjacent chunks.
+                Defaults to 62.
+            tokenizer (str, optional): HuggingFace tokenizer identifier used to
+                count tokens for chunking. Defaults to the ``TOKENIZER``
+                environment variable.
+        """
         self.ollama_url = ollama_url
         self.model = model
         self.max_tokens = max_tokens
@@ -240,6 +255,13 @@ class Pipeline:
             embed_service: EmbeddingService,
             file_path: str
     ):
+        """Store references to the Qdrant manager, embedding service, and data file path.
+
+        Args:
+            qdrant (QdrantManager): Qdrant collection manager for insert/delete/scroll.
+            embed_service (EmbeddingService): Service that chunks text and fetches embeddings.
+            file_path (str): Path to the UUID Parquet file produced by ``CommonDataPipeline``.
+        """
         self.qdrant = qdrant
         self.embed_service = embed_service
         self.file_path = file_path
@@ -281,6 +303,19 @@ class Pipeline:
             df: pl.DataFrame,
             existing_ids: set[str]
     ) -> list[str]:
+        """Delete Qdrant points for projects no longer active in the Parquet file.
+
+        Computes the set difference between ``existing_ids`` and the UUIDs of
+        active (non-deleted) rows in ``df``, then removes the stale points from
+        the Qdrant collection.
+
+        Args:
+            df (pl.DataFrame): Full funding DataFrame including deleted rows.
+            existing_ids (set[str]): Project UUIDs currently indexed in Qdrant.
+
+        Returns:
+            list[str]: UUIDs that were deleted from Qdrant (empty if nothing to delete).
+        """
         active_ids = set(
             df.filter(pl.col("deleted") == False)["uuid"].to_list()
         )
@@ -320,6 +355,15 @@ class Pipeline:
             self,
             new_rows: pl.DataFrame
     ) -> None:
+        """Embed and upsert all rows in ``new_rows`` into Qdrant with bounded concurrency.
+
+        Builds one async task per project and runs them concurrently, gated by
+        an ``asyncio.Semaphore`` of size ``EMBEDDING_CONCURRENCY`` to avoid
+        overwhelming the Ollama API.
+
+        Args:
+            new_rows (pl.DataFrame): Active, not-yet-indexed rows to process.
+        """
         descriptions = new_rows["description"].cast(pl.Utf8).to_list()
         metadata_list = new_rows.to_dicts()
         ids = new_rows["uuid"].to_list()
@@ -411,6 +455,11 @@ class Pipeline:
 
         Returns:
             list[str]: Deduplicated project UUIDs currently indexed.
+
+        Raises:
+            Exception: Propagates any Qdrant scroll error so callers can abort
+                the embedding run rather than silently treating the collection
+                as empty.
         """
         project_ids: set[str] = set()
         offset = None

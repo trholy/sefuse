@@ -1,3 +1,5 @@
+"""HTML cleaning and DataFrame normalisation utilities for funding data pipelines."""
+
 from typing import Iterable
 import polars as pl
 from bs4 import BeautifulSoup
@@ -37,6 +39,11 @@ class DataCleaner:
     """
 
     def __init__(self, html_cleaner: HtmlCleaner):
+        """Initialise a DataCleaner backed by `html_cleaner`.
+
+        Args:
+            html_cleaner (HtmlCleaner): Instance used to strip HTML from string columns.
+        """
         self._html_cleaner = html_cleaner
 
     def clean_dataframe(self, df: pl.DataFrame) -> pl.DataFrame:

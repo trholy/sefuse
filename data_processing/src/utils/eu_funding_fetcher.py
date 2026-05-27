@@ -1,3 +1,5 @@
+"""Paginates the EU SEDIA search API to collect open/forthcoming English-language calls."""
+
 import json
 import logging
 import time
@@ -40,6 +42,16 @@ class EuFundingFetcher:
         timeout_seconds: float = 30,
         page_delay_seconds: float = 0.2,
     ):
+        """Initialise an EuFundingFetcher for the given endpoint and credentials.
+
+        Args:
+            api_url (str): Base URL of the SEDIA search endpoint.
+            api_key (str): API key passed as the ``apiKey`` query parameter.
+            timeout_seconds (float, optional): HTTP request timeout in seconds.
+                Defaults to 30.
+            page_delay_seconds (float, optional): Sleep between paginated requests
+                to avoid rate-limiting. Defaults to 0.2.
+        """
         self._api_url = api_url
         self._api_key = api_key
         self._timeout_seconds = timeout_seconds
@@ -47,11 +59,13 @@ class EuFundingFetcher:
 
     @staticmethod
     def _get_meta_value(meta: dict, key: str) -> str | None:
+        """Extract and normalise a single string value from a metadata dict by `key`."""
         value = meta.get(key)
         return EuFundingFetcher._first_string(value)
 
     @staticmethod
     def _first_string(value: object) -> str | None:
+        """Recursively extract the first non-empty string from a scalar, dict, or list."""
         if value is None:
             return None
 
@@ -76,6 +90,7 @@ class EuFundingFetcher:
 
     @staticmethod
     def _normalize_meta_list(meta: dict, key: str) -> list[str]:
+        """Return all non-empty string entries for `key` from a metadata dict."""
         value = meta.get(key)
         if value is None:
             return []
@@ -90,6 +105,7 @@ class EuFundingFetcher:
 
     @staticmethod
     def _build_portal_topic_url(identifier: str | None) -> str | None:
+        """Construct the EU Funding & Tenders portal URL for a topic `identifier`."""
         if not identifier:
             return None
 
@@ -100,6 +116,7 @@ class EuFundingFetcher:
 
     @staticmethod
     def _is_english(result_language: str | None, metadata_languages: list[str]) -> bool:
+        """Return ``True`` when the result or its metadata indicates an English-language call."""
         if result_language and result_language.lower().startswith("en"):
             return True
 
@@ -107,9 +124,22 @@ class EuFundingFetcher:
 
     @staticmethod
     def _is_allowed_status(status_code: str | None) -> bool:
+        """Return ``True`` when `status_code` is OPEN or FORTHCOMING."""
         return status_code in EU_ACTIVE_STATUS_CODES
 
     def _fetch_page(self, page_number: int, page_size: int) -> list[dict]:
+        """Request one page of OPEN/FORTHCOMING calls from the SEDIA search endpoint.
+
+        Args:
+            page_number (int): 1-based page index to request.
+            page_size (int): Number of results per page.
+
+        Returns:
+            list[dict]: Raw result dicts from the `results` key of the API response.
+
+        Raises:
+            requests.HTTPError: If the server returns a non-2xx status code.
+        """
         params = {
             "apiKey": self._api_key,
             "pageNumber": page_number,

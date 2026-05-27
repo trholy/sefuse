@@ -1,3 +1,5 @@
+"""Deterministic UUID5 column generator for funding DataFrames."""
+
 import uuid
 import polars as pl
 
@@ -14,6 +16,11 @@ class UuidGenerator:
     """
 
     def __init__(self, namespace: uuid.UUID):
+        """Initialise a UuidGenerator with a fixed UUID5 `namespace`.
+
+        Args:
+            namespace (uuid.UUID): UUID namespace used as the base for ``uuid5`` generation.
+        """
         self._namespace = namespace
 
     def add_uuid_column(

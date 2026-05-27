@@ -19,6 +19,11 @@ class Database:
     """
 
     def __init__(self, settings: AuthSettings):
+        """Initialise the connection factory with the given auth settings.
+
+        Args:
+            settings (AuthSettings): Frozen dataclass with DB host, port, credentials, and timeout.
+        """
         self._settings = settings
 
     @contextmanager

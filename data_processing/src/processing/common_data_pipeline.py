@@ -1,3 +1,5 @@
+"""Shared clean → taxonomy → UUID → Parquet pipeline used by German and EU funding flows."""
+
 from pathlib import Path
 
 import polars as pl
@@ -40,6 +42,15 @@ class CommonDataPipeline:
         uuid_generator: UuidGenerator,
         taxonomy_builder: TaxonomyContractBuilder | None = None,
     ):
+        """Initialise a CommonDataPipeline with its collaborator objects.
+
+        Args:
+            cleaner (DataCleaner): Cleans HTML and normalises string columns.
+            uuid_generator (UuidGenerator): Derives UUIDs from a source column.
+            taxonomy_builder (TaxonomyContractBuilder | None, optional): Builds and
+                saves the taxonomy contract. A fresh instance is created when ``None``.
+                Defaults to None.
+        """
         self._cleaner = cleaner
         self._uuid_generator = uuid_generator
         self._taxonomy_builder = taxonomy_builder or TaxonomyContractBuilder()

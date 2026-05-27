@@ -42,6 +42,11 @@ class PostgresUserRepository:
     """
 
     def __init__(self, database: Database):
+        """Initialise the repository with a psycopg2 connection factory.
+
+        Args:
+            database (Database): Connection factory used for all queries.
+        """
         self._database = database
 
     def get_by_username(self, username: str) -> UserRecord | None:

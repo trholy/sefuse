@@ -1,3 +1,5 @@
+"""Extracts deduplicated canonical taxonomy values from funding DataFrames."""
+
 import polars as pl
 from pathlib import Path
 
@@ -24,15 +26,15 @@ class UniqueValueExtractor:
     FALLBACK = "Unknown"
 
     def _normalize(self, value: str) -> str:
+        """Return the normalised taxonomy key for `value`."""
         return normalize_taxonomy_key(value)
 
     def _is_invalid(self, value: str, key: str) -> bool:
-        """
-        Decide if something should go to fallback bucket
-        """
+        """Return ``True`` when `value`/`key` should fall back to the fallback bucket."""
         return is_invalid_taxonomy_value(value, key)
 
     def _score(self, value: str) -> int:
+        """Return a display-quality score for `value` (higher is better)."""
         return score_taxonomy_display_value(value)
 
     def extract(self, df: pl.DataFrame, column: str) -> list[str]:

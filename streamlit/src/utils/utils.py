@@ -178,6 +178,14 @@ def render_german_project_result(result: Dict) -> None:
 
 
 def _parse_datetime(value: Any) -> datetime | None:
+    """Parse a datetime-like value into a ``datetime`` object, returning ``None`` on failure.
+
+    Args:
+        value (Any): ISO-8601 string, ``datetime`` instance, or ``None``.
+
+    Returns:
+        datetime | None: Parsed ``datetime``, or ``None`` when unparseable.
+    """
     if value is None:
         return None
     if isinstance(value, datetime):

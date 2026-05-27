@@ -6,6 +6,11 @@ from .config import load_auth_settings
 
 
 def _migrations_dir() -> Path:
+    """Resolve the path to the `migrations/` directory relative to this module.
+
+    Returns:
+        Path: Path to the migrations directory (may not exist if none are found).
+    """
     current_path = Path(__file__).resolve()
     candidates = [
         current_path.parents[1] / "migrations",
@@ -18,6 +23,11 @@ def _migrations_dir() -> Path:
 
 
 def _sorted_migrations() -> list[Path]:
+    """Return all `.sql` migration files in the migrations directory, sorted alphabetically.
+
+    Returns:
+        list[Path]: SQL file paths in ascending (version) order.
+    """
     return sorted(_migrations_dir().glob("*.sql"))
 
 

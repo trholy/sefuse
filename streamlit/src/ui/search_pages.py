@@ -34,6 +34,14 @@ class BaseFundingSearchPage(ABC):
         model: str | None = None,
         fastapi_url: str | None = None,
     ):
+        """Initialise shared configuration from arguments or environment variables.
+
+        Args:
+            model (str | None, optional): Embedding model name. Defaults to the
+                ``MODEL`` environment variable or ``"bge-m3"``.
+            fastapi_url (str | None, optional): FastAPI base URL. Defaults to the
+                ``FASTAPI_URL`` environment variable or ``"http://fastapi:8000"``.
+        """
         self.model = model or os.getenv("MODEL", "bge-m3")
         self.fastapi_url = fastapi_url or os.getenv(
             "FASTAPI_URL",
@@ -43,29 +51,31 @@ class BaseFundingSearchPage(ABC):
     @property
     @abstractmethod
     def page_title(self) -> str:
-        pass
+        """Human-readable page title shown in the browser tab and page header."""
 
     @property
     @abstractmethod
     def search_endpoint(self) -> str:
-        pass
+        """FastAPI endpoint path for this collection, e.g. ``"/v1/search/german"``."""
 
     @property
     @abstractmethod
     def search_button_key(self) -> str:
-        pass
+        """Unique Streamlit widget key for the search button."""
 
     @property
     @abstractmethod
     def query_key(self) -> str:
-        pass
+        """Unique Streamlit widget key for the query text area."""
 
     @property
     def search_limit_key(self) -> str:
+        """Streamlit widget key for the search-limit number input."""
         return f"{self.search_button_key}_limit"
 
     @property
     def no_results_message(self) -> str:
+        """Message displayed when the backend returns zero matches."""
         return "No projects found."
 
     @abstractmethod
@@ -86,7 +96,11 @@ class BaseFundingSearchPage(ABC):
 
     @abstractmethod
     def render_result(self, result: dict[str, Any]) -> None:
-        pass
+        """Render a single search result as a Streamlit card.
+
+        Args:
+            result (dict[str, Any]): Project dict returned by the search backend.
+        """
 
     def render(self) -> None:
         """Render the full search page: config, text area, sidebar, search button, and results."""
@@ -143,22 +157,27 @@ class GermanFundingSearchPage(BaseFundingSearchPage):
 
     @property
     def page_title(self) -> str:
+        """Return the page title for the German federal funding search page."""
         return "Federal Funding Database"
 
     @property
     def search_endpoint(self) -> str:
+        """Return the FastAPI endpoint path for German federal funding search."""
         return "/v1/search/german"
 
     @property
     def search_button_key(self) -> str:
+        """Return the Streamlit widget key for the German search button."""
         return "search_federal"
 
     @property
     def query_key(self) -> str:
+        """Return the Streamlit widget key for the German query text area."""
         return "federal_query"
 
     @property
     def no_results_message(self) -> str:
+        """Return the message shown when no German funding projects match the active filters."""
         return "No projects match your selected filters."
 
     def render_sidebar(self) -> tuple[float, int, dict[str, Any]]:
@@ -237,6 +256,11 @@ class GermanFundingSearchPage(BaseFundingSearchPage):
         return float(semantic_weight), int(search_limit), {"filters": filters}
 
     def render_result(self, result: dict[str, Any]) -> None:
+        """Render a single German federal funding project as a Streamlit card.
+
+        Args:
+            result (dict[str, Any]): Project dict returned by the search backend.
+        """
         render_german_project_result(result)
 
 
@@ -248,18 +272,22 @@ class EuFundingSearchPage(BaseFundingSearchPage):
     """
     @property
     def page_title(self) -> str:
+        """Return the page title for the EU funding search page."""
         return "EU Funding Programs"
 
     @property
     def search_endpoint(self) -> str:
+        """Return the FastAPI endpoint path for EU funding search."""
         return "/v1/search/eu"
 
     @property
     def search_button_key(self) -> str:
+        """Return the Streamlit widget key for the EU search button."""
         return "search_eu"
 
     @property
     def query_key(self) -> str:
+        """Return the Streamlit widget key for the EU query text area."""
         return "eu_query"
 
     def render_sidebar(self) -> tuple[float, int, dict[str, Any]]:
@@ -291,4 +319,9 @@ class EuFundingSearchPage(BaseFundingSearchPage):
         return float(semantic_weight), int(search_limit), {}
 
     def render_result(self, result: dict[str, Any]) -> None:
+        """Render a single EU funding call as a Streamlit card.
+
+        Args:
+            result (dict[str, Any]): Project dict returned by the search backend.
+        """
         render_eu_project_result(result)

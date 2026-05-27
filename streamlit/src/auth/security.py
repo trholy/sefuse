@@ -64,6 +64,11 @@ class PasswordHasher:
     """
 
     def __init__(self, rounds: int = 12):
+        """Initialise the hasher with the given bcrypt cost factor.
+
+        Args:
+            rounds (int, optional): bcrypt work factor (higher = slower hashing). Defaults to 12.
+        """
         self._rounds = rounds
 
     def hash_password(self, plain_password: str) -> str:

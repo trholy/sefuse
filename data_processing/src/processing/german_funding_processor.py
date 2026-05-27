@@ -1,9 +1,10 @@
+"""German-funding-specific processing hook for date column normalisation."""
+
 import polars as pl
 
 
 class GermanFundingProcessor:
-    """
-    German funding specific processing hook.
+    """German-funding-specific processing hook.
 
     The German dataset already follows the target structure before shared
     cleaning/UUID/export steps, so this processor currently acts as a

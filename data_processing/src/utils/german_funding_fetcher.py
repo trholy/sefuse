@@ -1,3 +1,5 @@
+"""HTTP file downloader for the German federal funding dataset ZIP."""
+
 import requests
 from pathlib import Path
 

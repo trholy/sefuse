@@ -1,3 +1,11 @@
+"""Configuration module for the SeFuSe data-processing pipelines.
+
+Reads environment variables for API endpoints, credentials, and pagination
+settings. Exposes two frozen dataclasses — `GermanFundingConfig` and
+`EuFundingConfig` — that bundle all file paths and runtime parameters for
+their respective funding pipelines.
+"""
+
 import os
 from dataclasses import dataclass
 from pathlib import Path
