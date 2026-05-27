@@ -1,4 +1,4 @@
-"""Paginates the EU SEDIA search API to collect open/forthcoming English-language calls."""
+"""Paginates the EU search API to collect open/forthcoming English-language calls."""
 
 import json
 import logging
@@ -17,20 +17,20 @@ logger = logging.getLogger(__name__)
 
 
 class EuFundingFetcher:
-    """Paginates the EU SEDIA search API and collects open/forthcoming English-language calls.
+    """Paginates the EU search API and collects open/forthcoming English-language calls.
 
     Only OPEN and FORTHCOMING calls are requested; CLOSED calls are excluded at the query
     level to avoid unbounded pagination. Non-English results are dropped client-side.
 
     Args:
-        api_url (str): Base URL of the SEDIA search endpoint.
+        api_url (str): Base URL of the search endpoint.
         api_key (str): API key passed as the `apiKey` query parameter.
         timeout_seconds (float, default=30): HTTP request timeout in seconds.
         page_delay_seconds (float, default=0.2): Sleep between paginated requests
             to avoid rate-limiting.
 
     Example:
-        fetcher = EuFundingFetcher(api_url="https://...", api_key="SEDIA")
+        fetcher = EuFundingFetcher(api_url="https://...", api_key="")
         calls = fetcher.fetch_open_and_forthcoming_calls(page_size=50)
         EuFundingFetcher.save(calls, Path("data/eu_open_calls.json"))
     """
@@ -45,7 +45,7 @@ class EuFundingFetcher:
         """Initialise an EuFundingFetcher for the given endpoint and credentials.
 
         Args:
-            api_url (str): Base URL of the SEDIA search endpoint.
+            api_url (str): Base URL of the search endpoint.
             api_key (str): API key passed as the ``apiKey`` query parameter.
             timeout_seconds (float, optional): HTTP request timeout in seconds.
                 Defaults to 30.
@@ -128,7 +128,7 @@ class EuFundingFetcher:
         return status_code in EU_ACTIVE_STATUS_CODES
 
     def _fetch_page(self, page_number: int, page_size: int) -> list[dict]:
-        """Request one page of OPEN/FORTHCOMING calls from the SEDIA search endpoint.
+        """Request one page of OPEN/FORTHCOMING calls from the search endpoint.
 
         Args:
             page_number (int): 1-based page index to request.
