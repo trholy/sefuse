@@ -1,4 +1,4 @@
-fastapi==0.127.0
-polars==1.36.1
-beautifulsoup4<=4.14.3
-requests<=2.32.5
+fastapi==0.136.3
+polars==1.40.1
+beautifulsoup4==4.14.3
+requests==2.34.2
