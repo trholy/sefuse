@@ -4,7 +4,7 @@ import streamlit as st
 from psycopg2 import OperationalError
 
 from .config import AuthSettings, load_auth_settings
-from .constants import ROLE_USER
+from .constants import ROLE_USER, SESSION_ROLE, SESSION_USERNAME
 from .db import Database
 from .exceptions import (
     AuthenticationError,
@@ -85,6 +85,16 @@ def safe_bootstrap() -> None:
             " Please check Docker Compose and DB credentials."
         )
         st.stop()
+    except ConfigurationError as error:
+        st.error(
+            f"**Configuration error:** {error}\n\n"
+            "**To fix this:**\n"
+            "1. Copy `.env.example` to `.env`\n"
+            "2. Replace all `change_me_*` values with real secrets\n"
+            "3. Restart with `docker-compose up --build`\n\n"
+            "See **README.md → Security Notes** for details."
+        )
+        st.stop()
     except Exception as error:
         st.error(f"Authentication initialization failed: {error}")
         st.stop()
@@ -161,8 +171,8 @@ def render_logout_button() -> None:
     if not is_authenticated():
         return
 
-    role = st.session_state.get("auth_role", ROLE_USER)
-    username = st.session_state.get("auth_username", "")
+    role = st.session_state.get(SESSION_ROLE, ROLE_USER)
+    username = st.session_state.get(SESSION_USERNAME, "")
     st.sidebar.caption(f"Logged in as `{username}` ({role})")
     if st.sidebar.button("Logout", key="logout_button"):
         logout_user()

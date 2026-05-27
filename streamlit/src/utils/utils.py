@@ -255,5 +255,10 @@ def _friendly_search_error(error: Exception) -> str:
             " Please try again in a moment."
         )
     if isinstance(error, requests.exceptions.HTTPError):
+        if error.response is not None and error.response.status_code == 503:
+            return (
+                "The embedding service is warming up."
+                " Please retry in a few seconds."
+            )
         return "Search service returned an unexpected response. Please try again."
     return "Something went wrong while searching. Please try again."

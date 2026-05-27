@@ -50,7 +50,7 @@ class EuFundingConfig:
     """API settings and file paths for the EU funding pipeline.
 
     API parameters (URL, key, page size, timeouts) are read from environment variables
-    and default to the public SEDIA endpoint. All file paths live under `data/`.
+    and default to the public endpoint. All file paths live under `data/`.
     """
 
     data_dir: Path = Path("data")

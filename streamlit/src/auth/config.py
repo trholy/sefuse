@@ -1,7 +1,23 @@
+import logging
 import os
 from dataclasses import dataclass
 
 from .exceptions import ConfigurationError
+
+logger = logging.getLogger(__name__)
+
+_SETUP_HINT = (
+    "\n"
+    "╔══════════════════════════════════════════════════════════════════╗\n"
+    "║  STARTUP FAILED: missing or placeholder secret in .env           ║\n"
+    "║                                                                  ║\n"
+    "║  Before running docker-compose, set up your .env file:           ║\n"
+    "║    1. cp .env.example .env                                       ║\n"
+    "║    2. Replace all change_me_* values with real secrets           ║\n"
+    "║                                                                  ║\n"
+    "║  See README.md → Security Notes for details.                     ║\n"
+    "╚══════════════════════════════════════════════════════════════════╝"
+)
 
 
 def _read_bool(name: str, default: bool) -> bool:
@@ -103,9 +119,17 @@ def load_auth_settings() -> AuthSettings:
     enabled = _read_bool("AUTH_ENABLED", True)
     db_password = os.getenv("DB_PASSWORD", "")
     if enabled and not db_password:
+        logger.critical(_SETUP_HINT)
         raise ConfigurationError(
             "DB_PASSWORD must be set when AUTH_ENABLED=true."
         )
+    admin_password = os.getenv("ADMIN_PASSWORD", "")
+    for label, value in [("DB_PASSWORD", db_password), ("ADMIN_PASSWORD", admin_password)]:
+        if value.startswith("change_me"):
+            logger.critical(_SETUP_HINT)
+            raise ConfigurationError(
+                f"{label} still uses the change_me placeholder — set a real secret in .env"
+            )
     return AuthSettings(
         enabled=enabled,
         db_host=os.getenv("DB_HOST", "postgres"),

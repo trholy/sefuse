@@ -72,6 +72,11 @@ def run_eu_funding_pipeline() -> None:
     """
     config = EuFundingConfig()
 
+    if config.api_key == "SEDIA":
+        logger.warning(
+            "Using public demo EU_API_KEY=SEDIA — request a private key for production deployments."
+        )
+
     fetcher = EuFundingFetcher(
         api_url=config.api_url,
         api_key=config.api_key,
