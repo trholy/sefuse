@@ -3,7 +3,6 @@ import time
 import os
 import logging
 import uuid
-from itertools import islice
 from typing import List, Optional
 
 import httpx
@@ -22,21 +21,6 @@ OLLAMA_EMBED_TIMEOUT_SECONDS = float(os.getenv("OLLAMA_EMBED_TIMEOUT_SECONDS", "
 ADAPTIVE_CHUNK_THRESHOLD = int(os.getenv("ADAPTIVE_CHUNK_THRESHOLD", "600"))
 EMBEDDING_CONCURRENCY = int(os.getenv("EMBEDDING_CONCURRENCY", "4"))
 PAYLOAD_EXCLUDE_FIELDS = {"description"}
-
-
-def chunked(iterable, size: int):
-    """Yield successive fixed-size chunks from an iterable.
-
-    Args:
-        iterable: Any iterable to split.
-        size (int): Maximum number of elements per chunk.
-
-    Yields:
-        list: Successive sublists of at most `size` elements.
-    """
-    it = iter(iterable)
-    while chunk := list(islice(it, size)):
-        yield chunk
 
 
 def load_funding_data(
@@ -202,12 +186,49 @@ class EmbeddingService:
             return text[:min_keep_chars + best + 1]
         return text
 
+    async def fetch_embeddings_batch(
+        self,
+        client: httpx.AsyncClient,
+        texts: List[str],
+    ) -> List[Optional[List[float]]]:
+        """Request dense embedding vectors for a batch of texts in one Ollama call.
+
+        Sends a single POST to ``/api/embed`` with all texts as the ``input`` list.
+        Returns vectors in the same order as ``texts``; failed requests yield ``None``
+        at the corresponding index.
+
+        Args:
+            client (httpx.AsyncClient): Shared async HTTP client.
+            texts (List[str]): Texts to embed in one request.
+
+        Returns:
+            List[Optional[List[float]]]: Embedding vectors, one per input text.
+                ``None`` at an index means that embedding failed.
+        """
+        try:
+            resp = await client.post(
+                f"{self.ollama_url}/api/embed",
+                json={"model": self.model, "input": texts},
+                timeout=OLLAMA_EMBED_TIMEOUT_SECONDS,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            embeddings = data.get("embeddings", [])
+            result: List[Optional[List[float]]] = list(embeddings)
+            result += [None] * (len(texts) - len(result))
+            return result
+        except httpx.HTTPError as e:
+            logger.error(f"Batch embedding request failed: {e}")
+            return [None] * len(texts)
+
     async def fetch_embedding(
         self,
         client: httpx.AsyncClient,
         text: str
     ) -> Optional[List[float]]:
         """Request a dense embedding vector for a single text chunk from Ollama.
+
+        Thin wrapper around ``fetch_embeddings_batch`` for single-text callers.
 
         Args:
             client (httpx.AsyncClient): Shared async HTTP client.
@@ -216,21 +237,8 @@ class EmbeddingService:
         Returns:
             Optional[List[float]]: Embedding vector, or None if the request fails.
         """
-        try:
-            resp = await client.post(
-                f"{self.ollama_url}/api/embed",
-                json={"model": self.model, "input": text},
-                timeout=OLLAMA_EMBED_TIMEOUT_SECONDS
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            embeddings = data.get("embeddings")
-            if embeddings and len(embeddings) > 0:
-                return embeddings[0]
-            return None
-        except httpx.HTTPError as e:
-            logger.error(f"Embedding request failed: {e}")
-            return None
+        results = await self.fetch_embeddings_batch(client, [text])
+        return results[0]
 
 
 class Pipeline:
@@ -374,7 +382,10 @@ class Pipeline:
             async with semaphore:
                 await self._process_single_project(client, desc, meta, pid)
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(
+            limits=httpx.Limits(max_connections=20, max_keepalive_connections=5),
+            timeout=OLLAMA_EMBED_TIMEOUT_SECONDS,
+        ) as client:
             await asyncio.gather(*(
                 _bounded(client, desc, meta, pid)
                 for desc, meta, pid in zip(descriptions, metadata_list, ids)
@@ -411,13 +422,10 @@ class Pipeline:
 
         enriched_chunks = [f"{header}{chunk}" for chunk in text_chunks]
 
-        indexed_embeddings = []
-        for i, enriched_chunk in enumerate(enriched_chunks):
-            emb = await self.embed_service.fetch_embedding(
-                client, enriched_chunk
-            )
-            if emb is not None:
-                indexed_embeddings.append((i, emb))
+        embeddings_batch = await self.embed_service.fetch_embeddings_batch(client, enriched_chunks)
+        indexed_embeddings = [
+            (i, emb) for i, emb in enumerate(embeddings_batch) if emb is not None
+        ]
 
         if not indexed_embeddings:
             logger.warning(f"No embeddings generated for project {project_id}")
@@ -463,23 +471,20 @@ class Pipeline:
         """
         project_ids: set[str] = set()
         offset = None
-        try:
-            while True:
-                points, offset = self.qdrant.client.scroll(
-                    collection_name=self.qdrant.collection_name,
-                    limit=256,
-                    with_payload=["project_uuid"],
-                    with_vectors=False,
-                    offset=offset,
-                )
-                for p in points:
-                    if p.payload and "project_uuid" in p.payload:
-                        project_ids.add(p.payload["project_uuid"])
-                    else:
-                        project_ids.add(str(p.id))
-                if offset is None:
-                    break
-            logger.info(f"Fetched {len(project_ids)} existing project IDs from Qdrant")
-        except Exception as e:
-            logger.error(f"Error fetching existing project IDs: {e}")
+        while True:
+            points, offset = self.qdrant.client.scroll(
+                collection_name=self.qdrant.collection_name,
+                limit=256,
+                with_payload=["project_uuid"],
+                with_vectors=False,
+                offset=offset,
+            )
+            for p in points:
+                if p.payload and "project_uuid" in p.payload:
+                    project_ids.add(p.payload["project_uuid"])
+                else:
+                    project_ids.add(str(p.id))
+            if offset is None:
+                break
+        logger.info(f"Fetched {len(project_ids)} existing project IDs from Qdrant")
         return list(project_ids)
