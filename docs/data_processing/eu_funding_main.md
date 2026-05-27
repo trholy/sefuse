@@ -29,7 +29,7 @@ Fetch, process, and store the EU funding dataset end-to-end.
 Orchestrates the full EU pipeline:
 
 1. Builds `EuFundingConfig` from environment-backed defaults.
-2. Logs a `WARNING` when `config.api_key == "SEDIA"` (public demo key in use).
+2. Logs a `WARNING` when `config.api_key == "SEDIA"` (public key in use).
 3. Fetches open/forthcoming calls via `EuFundingFetcher`, falling back to the cached JSON on network failure.
 4. Transforms raw dicts to a typed Polars DataFrame via `EuFundingProcessor`.
 5. Runs `CommonDataPipeline.process_and_store` to clean HTML, canonicalise the `funding_area` taxonomy, assign UUIDs, and write Parquet files plus the taxonomy JSON.
