@@ -5,6 +5,7 @@ import re
 import time
 from collections import Counter
 from collections.abc import Mapping
+from functools import lru_cache
 from types import SimpleNamespace
 from typing import Any, Dict, List
 
@@ -68,6 +69,7 @@ def _bm25_saturate(tf: float, k1: float = BM25_K1) -> float:
     return (tf * (k1 + 1)) / (tf + k1)
 
 
+@lru_cache(maxsize=10_000)
 def _split_compound(word: str) -> list[str]:
     """Split a German compound word into two parts at a fugen element.
 
@@ -335,25 +337,19 @@ class QdrantManager:
         return int(digest[:8], 16)
 
     @classmethod
-    def _build_sparse_vector(cls, text: str) -> SparseVector:
-        """Build a BM25-saturated sparse vector from text.
-
-        Tokenizes the text via ``_tokenize`` (stemming + compound splitting),
-        counts term frequencies, applies BM25 saturation to each count, and
-        maps tokens to stable integer indices via ``_token_to_index``.
+    def _build_sparse_vector_from_tokens(cls, token_counts: Counter) -> SparseVector:
+        """Build a BM25-saturated sparse vector from a pre-computed token Counter.
 
         Hash collisions (two distinct tokens mapping to the same 32-bit index)
-        are resolved by summing their BM25 values, producing a valid sparse
-        vector rather than a duplicate-index error.
+        are resolved by summing their BM25 values.
 
         Args:
-            text (str): Input text to vectorize.
+            token_counts (Counter): Token frequency map from ``_tokenize``.
 
         Returns:
             SparseVector: Sparse vector with unique sorted indices and BM25-saturated
-                values, or an empty vector when no tokens survive filtering.
+                values, or an empty vector when the counter is empty.
         """
-        token_counts = Counter(cls._tokenize(text))
         if not token_counts:
             return SparseVector(indices=[], values=[])
         merged: dict[int, float] = {}
@@ -364,6 +360,19 @@ class QdrantManager:
         indices = [index for index, _ in indexed_tokens]
         values = [value for _, value in indexed_tokens]
         return SparseVector(indices=indices, values=values)
+
+    @classmethod
+    def _build_sparse_vector(cls, text: str) -> SparseVector:
+        """Build a BM25-saturated sparse vector from text.
+
+        Args:
+            text (str): Input text to vectorize.
+
+        Returns:
+            SparseVector: Sparse vector with unique sorted indices and BM25-saturated
+                values, or an empty vector when no tokens survive filtering.
+        """
+        return cls._build_sparse_vector_from_tokens(Counter(cls._tokenize(text)))
 
     def insert_projects(
             self,
@@ -423,11 +432,6 @@ class QdrantManager:
                     ]
                 )
             ),
-        )
-
-        self.client.delete(
-            collection_name=self.collection_name,
-            points_selector=project_uuids,
         )
 
         logger.info(
