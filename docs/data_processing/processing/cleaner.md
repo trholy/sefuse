@@ -1,34 +1,45 @@
 # `data_processing.processing.cleaner`
 
-Provides HTML cleanup and dataframe-wide text normalization for funding datasets.
+HTML cleaning and DataFrame normalisation utilities for funding data pipelines.
 
-## Classes
+---
 
-### `HtmlCleaner`
+## Class `HtmlCleaner`
 
-Converts raw text or HTML fragments into cleaned plain text.
+Strips HTML tags from a string, returning plain text.
 
-#### `clean(value)`
+### `clean(value: str | None) -> str`
 
-- Returns `"N/A"` for missing or empty values.
-- Parses HTML content with BeautifulSoup when tags are detected.
-- Strips whitespace from plain strings.
+Strip HTML markup and return plain text.
 
-### `DataCleaner`
+**Parameters:**
 
-Applies column-level cleanup rules to a Polars dataframe.
+- `value` (`str | None`): Raw string, optionally containing HTML tags.
 
-#### Constructor
+**Returns:** `str` — Plain text with tags removed, or `"N/A"` for empty/`None` input.
 
-- `html_cleaner`: `HtmlCleaner` instance used for string normalization.
+---
 
-#### `clean_dataframe(df)`
+## Class `DataCleaner`
 
-Performs the shared cleanup pipeline:
+Cleans a raw funding DataFrame: extracts description sections, fills nulls, and strips HTML from all string columns.
 
-1. Extracts short and full descriptions from HTML sections in the `description` column.
-2. Preserves already existing `project_short_description` and `project_full_description` values when present.
-3. Replaces empty strings with nulls and then fills nulls with `"N/A"`.
-4. Applies `HtmlCleaner.clean` to every UTF-8 column in the dataframe.
+### `__init__(html_cleaner: HtmlCleaner)`
 
-Returns a cleaned `polars.DataFrame`.
+**Parameters:**
+
+- `html_cleaner` (`HtmlCleaner`): Instance used to strip HTML from string columns.
+
+---
+
+### `clean_dataframe(df: pl.DataFrame) -> pl.DataFrame`
+
+Apply all cleaning steps to a funding DataFrame.
+
+Extracts `project_short_description` and `project_full_description` from the HTML `description` column using German `<h3>Kurztext</h3>` / `<h3>Volltext</h3>` section markers. Preserves already-populated values (e.g. from EU input) by using `pl.coalesce`. Replaces empty strings with `null` and fills `null` with `"N/A"`. Applies `HtmlCleaner.clean` to all remaining `Utf8` columns.
+
+**Parameters:**
+
+- `df` (`pl.DataFrame`): Raw input DataFrame with at least a `description` column.
+
+**Returns:** `pl.DataFrame` — Cleaned DataFrame with description fields populated and all string columns HTML-stripped.

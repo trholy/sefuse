@@ -1,42 +1,49 @@
 # `data_processing.processing.common_data_pipeline`
 
-Implements the shared post-processing workflow used by both funding ingestion pipelines.
+Shared clean → taxonomy → UUID → Parquet pipeline used by both the German and EU funding flows.
+
+---
 
 ## Module Constant
 
-- `DEFAULT_EXPORT_COLUMNS`: default category columns exported to text files.
+| Constant | Type | Default | Description |
+|---|---|---|---|
+| `DEFAULT_EXPORT_COLUMNS` | `list[str]` | `["funding_type", "funding_area", "funding_location", "eligible_applicants"]` | Taxonomy columns canonicalised when `export_columns` is not explicitly provided. |
+
+---
 
 ## Class `CommonDataPipeline`
 
-Combines dataframe cleaning, taxonomy canonicalization, UUID generation, and parquet storage.
+Shared processing pipeline: clean → canonicalise taxonomy → assign UUIDs → save Parquet outputs.
 
-### Constructor
+Used by both the German and EU funding pipelines. Taxonomy canonicalisation is handled by `TaxonomyContractBuilder`; a default instance is created if none is provided.
 
-- `cleaner`: `DataCleaner` instance.
-- `uuid_generator`: `UuidGenerator` instance.
-- `taxonomy_builder`: optional `TaxonomyContractBuilder` instance; defaults to an internal instance.
+### `__init__(cleaner: DataCleaner, uuid_generator: UuidGenerator, taxonomy_builder: TaxonomyContractBuilder | None = None)`
 
-### `process_and_store(...)`
+**Parameters:**
 
-Processes a dataframe and writes downstream artifacts.
+- `cleaner` (`DataCleaner`): Cleans HTML and normalises string columns.
+- `uuid_generator` (`UuidGenerator`): Derives deterministic UUID5s from a source column.
+- `taxonomy_builder` (`TaxonomyContractBuilder | None`, default `None`): Builds and saves the taxonomy contract. A fresh `TaxonomyContractBuilder()` is created when `None`.
 
-#### Parameters
+---
 
-- `df`: input `polars.DataFrame`.
-- `cleaned_path`: target path for the cleaned parquet file.
-- `uuid_path`: target path for the UUID-enriched parquet file.
-- `source_column`: source column used to derive stable UUID values.
-- `data_dir`: root data directory; created if absent.
-- `export_columns`: optional list of columns to canonicalize; falls back to `DEFAULT_EXPORT_COLUMNS`.
-- `export_file_prefix`: unused prefix kept for API compatibility.
-- `columns_to_drop_before_store`: optional columns removed before parquet persistence.
-- `taxonomy_path`: required output path for a taxonomy contract JSON artifact.
-- `taxonomy_domain`: taxonomy domain label used in the contract artifact (`"german"` or `"eu"`).
+### `process_and_store(df: pl.DataFrame, cleaned_path: Path, uuid_path: Path, source_column: str, data_dir: Path, taxonomy_path: Path, export_columns: list[str] | None = None, columns_to_drop_before_store: list[str] | None = None, taxonomy_domain: str = "german") -> None`
 
-#### Behavior
+Run the full clean → taxonomy → UUID → write pipeline and save outputs.
 
-- Cleans the dataframe and writes cleaned and UUID-enriched parquet outputs.
-- Taxonomy contract flow:
-  - Canonicalizes configured category columns.
-  - Adds normalized `*_keys` columns for key-based filtering.
-  - Builds and writes a versioned taxonomy contract artifact to `taxonomy_path`.
+Writes three artefacts to disk: cleaned Parquet, UUID Parquet, and the taxonomy JSON contract.
+
+**Parameters:**
+
+- `df` (`pl.DataFrame`): Raw or pre-processed input DataFrame.
+- `cleaned_path` (`Path`): Destination for the cleaned Parquet file (parent dirs created automatically).
+- `uuid_path` (`Path`): Destination for the UUID-enriched Parquet file.
+- `source_column` (`str`): Column whose values are hashed via UUID5 to generate deterministic UUIDs.
+- `data_dir` (`Path`): Root data directory; created if absent.
+- `taxonomy_path` (`Path`): Destination for the taxonomy JSON artifact.
+- `export_columns` (`list[str] | None`, default `None`): Taxonomy columns to canonicalise. Defaults to `DEFAULT_EXPORT_COLUMNS` when `None`.
+- `columns_to_drop_before_store` (`list[str] | None`, default `None`): Columns removed from both Parquet files before writing (e.g. the UUID source column for EU data).
+- `taxonomy_domain` (`str`, default `"german"`): Domain label embedded in the taxonomy artifact (`"german"` or `"eu"`).
+
+**Returns:** `None`

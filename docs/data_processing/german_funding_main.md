@@ -1,33 +1,32 @@
 # `data_processing.german_funding_main`
 
-Runs the German funding data pipeline from source download to canonicalized parquet and taxonomy outputs.
-
-## Main Responsibilities
-
-- Loads `GermanFundingConfig`.
-- Downloads and extracts the German source parquet file.
-- Applies German-specific transformation.
-- Invokes the shared pipeline for cleaning, canonicalization, UUID generation, and artifact export.
+Entry point for the German federal funding data pipeline (download → extract → process → store).
 
 ## Functions
 
-### `run_german_funding_pipeline()`
+### `run_german_funding_pipeline() -> None`
 
-Executes the end-to-end German data preparation workflow.
+Download, extract, clean, and store the German federal funding dataset.
 
-Workflow:
+Orchestrates the full pipeline:
 
-1. Create configuration, downloader, and extractor instances.
-2. Download the archive referenced by `config.zip_url`.
-3. Extract `data.parquet` into the configured raw parquet location.
-4. Read the parquet file with Polars.
-5. Normalize dataset columns with `GermanFundingProcessor`.
-6. Pass the result to `CommonDataPipeline.process_and_store(...)`.
+1. Builds `GermanFundingConfig` from environment-backed defaults.
+2. Downloads the ZIP archive from `config.zip_url` via `FileDownloader`.
+3. Extracts `data.parquet` from the archive via `ZipExtractor`.
+4. Reads the raw parquet with Polars.
+5. Renames date columns (`on_website_from` → `date_1`, `last_updated` → `date_2`) via `GermanFundingProcessor.transform`.
+6. Runs `CommonDataPipeline.process_and_store` to clean HTML, canonicalise taxonomy columns, assign UUIDs, and write Parquet files plus the taxonomy JSON.
+
+Invoked by the FastAPI APScheduler cron job and on startup.
+
+**Returns:** `None`
 
 ## Outputs
 
-- Downloaded ZIP archive.
-- Extracted raw parquet file.
-- Cleaned parquet file.
-- UUID-enriched parquet file with taxonomy key columns.
-- `taxonomy_german.json` contract artifact at `config.taxonomy_json`.
+| Artifact | Path (from `GermanFundingConfig`) | Description |
+|---|---|---|
+| ZIP archive | `zip_path` | Downloaded source archive from the CDN. |
+| Raw Parquet | `raw_parquet` | Parquet file extracted from the ZIP. |
+| Cleaned Parquet | `cleaned_parquet` | HTML-stripped, normalised funding records. |
+| UUID Parquet | `uuid_parquet` | Cleaned records enriched with deterministic UUID column and taxonomy key columns. |
+| Taxonomy JSON | `taxonomy_json` | Versioned taxonomy contract (`taxonomy_german.json`). |

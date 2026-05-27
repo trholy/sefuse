@@ -26,13 +26,17 @@ Then run the following commands:
 ```bash
 git clone https://github.com/trholy/sefuse
 cd sefuse
+cp .env.example .env          # create your local config
+# Edit .env and replace every change_me_* value with a real secret before continuing
 docker-compose up --build
 ```
+
+> **Important:** `docker-compose up` will fail with a clear error message if `.env` is missing or still contains placeholder secrets. See [Security Notes](#security-notes) for the required values.
 
 The build process may take several minutes, as required services need to be downloaded and installed.
 
 Once the setup is complete, you can access the Streamlit web interface at:
-[http://localhost:8501](http://localhost:8501)
+[http://localhost:8080](http://localhost:8080)
 
 ---
 
@@ -82,17 +86,15 @@ All services communicate over Docker’s internal network using service names (e
 
 ```yaml
 qdrant:
-  image: qdrant/qdrant:latest
-  ports:
-    - "6333:6333"
+  image: qdrant/qdrant:v1.14.1
   volumes:
     - ./data/qdrant:/qdrant/storage
 ```
 
-Qdrant stores all embedding vectors and metadata using a hybrid schema (dense cosine 768-dim + sparse IDF-modified BM25 vectors). Convex Combination fusion blends both signal types at query time.
+Qdrant stores all embedding vectors and metadata using a hybrid schema (dense cosine 1024-dim + sparse IDF-modified BM25 vectors). Convex Combination fusion blends both signal types at query time.
 
 * **Persistent storage:** `./data/qdrant`
-* **Port 6333:** Used by FastAPI for similarity search
+* **Internal only:** Qdrant is not exposed on the host — only reachable by FastAPI inside the Docker backend network.
 * **Payload indexes:** Keyword indexes on `project_uuid` and taxonomy key fields accelerate filter queries
 
 This ensures that embeddings survive container restarts.
@@ -104,16 +106,15 @@ This ensures that embeddings survive container restarts.
 ```yaml
 ollama:
   build: ./ollama
-  ports:
-    - "11434:11434"
   volumes:
-    - ./ollama/data:/root/.ollama
+    - ./ollama/data:/home/ollama/.ollama
   environment:
     - MODEL=bge-m3
 ```
 
-Ollama runs the embedding model locally.
+Ollama runs the embedding model locally as the non-root `ollama` user.
 The model is downloaded and cached in `./ollama/data`.
+The startup script (`init_models.sh`) pulls the model if not already present, then execs `ollama serve` as PID 1 for clean signal handling.
 
 #### Environment variables
 
@@ -129,15 +130,15 @@ This value must match the `MODEL` used by FastAPI and Streamlit.
 
 ```yaml
 fastapi:
-  build: ./fastapi
-  ports:
-    - "8000:8000"
+  build:
+    context: .
+    dockerfile: fastapi/Dockerfile
   volumes:
     - ./data/funding_data:/app/data
     - ./data_processing/src:/app/data_processing
   depends_on:
-    - qdrant
-    - ollama
+    ollama:
+      condition: service_healthy
   environment:
     - MODEL=bge-m3
     - TOKENIZER=BAAI/bge-m3
@@ -148,6 +149,7 @@ fastapi:
     - OLLAMA_URL=http://ollama:11434
     - VECTOR_DB_HOST=qdrant
     - QDRANT_PORT=6333
+    - INTERNAL_API_TOKEN=${INTERNAL_API_TOKEN}
 ```
 
 FastAPI is the **brain of the system**. It:
@@ -178,8 +180,10 @@ FastAPI is the **brain of the system**. It:
 | `OLLAMA_EMBED_TIMEOUT_SECONDS`        | Per-request embedding timeout in seconds (default `120`) |
 | `OLLAMA_MODEL_READY_INTERVAL`         | Seconds between Ollama readiness probes on startup (default `10`) |
 | `OLLAMA_MODEL_READY_TIMEOUT`          | Max seconds to wait for Ollama before skipping embeddings (default `600`) |
-| `EU_API_KEY`                          | API key for the EU Funding & Tenders Portal search API. `SEDIA` is the [public demo key](https://api.tech.ec.europa.eu/search-api/prod/rest/swagger-ui.html). |
+| `EU_API_KEY`                          | API key for the EU Funding & Tenders Portal search API. `SEDIA` is the [public demo key](https://api.tech.ec.europa.eu/search-api/prod/rest/swagger-ui.html) — see the [EU API key](#eu-api-key) section below. |
 | `EU_MAX_PAGES`                        | Maximum pages fetched from the EU API per run (default `100`) |
+| `INTERNAL_API_TOKEN`                  | Shared secret between FastAPI and Streamlit. Required at startup (see [Security notes](#security-notes)). |
+| `ALLOW_UNAUTHENTICATED_INTERNAL_API`  | Set `true` to skip token auth in local dev. Logs a warning. Never set in production. |
 
 Example:
 
@@ -196,16 +200,22 @@ CRON_TRIGGER_EU_EMBEDDING=4            → EU embeddings at 04:00
 
 ```yaml
 streamlit:
-  build: ./streamlit
+  build:
+    context: .
+    dockerfile: streamlit/Dockerfile
   ports:
-    - "8501:8501"
+    - "0.0.0.0:8080:8501"
   volumes:
-    - ./data/funding_data:/app/data
+    - ./data/funding_data:/app/data:ro
   depends_on:
-    - fastapi
+    fastapi:
+      condition: service_healthy
+    postgres:
+      condition: service_healthy
   environment:
     - MODEL=bge-m3
     - FASTAPI_URL=http://fastapi:8000
+    - INTERNAL_API_TOKEN=${INTERNAL_API_TOKEN}
     - DB_HOST=postgres
     - DB_PORT=5432
     - DB_NAME=${POSTGRES_DB}
@@ -228,6 +238,47 @@ Streamlit provides the **user interface** where users enter project descriptions
 | `AUTH_ENABLED`   | Enables/disables Streamlit authentication globally |
 | `ADMIN_USERNAME` | Predefined admin account (created at app startup) |
 | `ADMIN_PASSWORD` | Admin password (stored as bcrypt hash in DB)      |
+
+---
+
+## Security Notes
+
+### Required secrets
+
+Before running for the first time, copy `.env.example` to `.env` and replace all `change_me_*` placeholder values. FastAPI and Streamlit refuse to start with placeholder secrets — this is enforced at import time.
+
+| Variable | Requirement |
+|---|---|
+| `INTERNAL_API_TOKEN` | Arbitrary secret shared by FastAPI and Streamlit. Use a random 32+ character string. |
+| `ADMIN_PASSWORD` | Admin account password. Must not start with `change_me`. |
+| `DB_PASSWORD` / `POSTGRES_PASSWORD` | PostgreSQL password. Must not start with `change_me`. |
+
+For local development without a token, set `ALLOW_UNAUTHENTICATED_INTERNAL_API=true` in `.env`. This logs a startup warning and must never be used in production.
+
+### Bind-mount ownership
+
+Several containers run as non-root users and require their bind-mount directories to be owned by the matching UID. On Linux hosts, run the following before the first start:
+
+```bash
+chown -R 10001:10001 ./data/funding_data   # FastAPI (appuser, UID 10001)
+chown -R 999:999     ./data/postgres       # PostgreSQL (postgres, UID 999)
+```
+
+On Windows and macOS with Docker Desktop this is handled automatically.
+
+---
+
+## EU API Key
+
+`SEDIA` is the public demo key for the [EU Funding & Tenders Portal search API](https://api.tech.ec.europa.eu/search-api/prod/rest/swagger-ui.html). It is suitable for development and evaluation but may be subject to undocumented rate limits.
+
+For production deployments, request a private key via the EU portal and set it in `.env`:
+
+```env
+EU_API_KEY=your_private_key_here
+```
+
+When `EU_API_KEY=SEDIA`, a startup warning is logged by the EU pipeline.
 
 ---
 
@@ -266,9 +317,9 @@ docker-compose up --build
 
 Then open:
 
-* **Streamlit UI:** [http://localhost:8501](http://localhost:8501)
-* **FastAPI Docs:** [http://localhost:8000/docs](http://localhost:8000/docs)
-* **Qdrant UI:** [http://localhost:6333/dashboard](http://localhost:6333/dashboard)
+* **Streamlit UI:** [http://localhost:8080](http://localhost:8080)
+
+FastAPI and Qdrant are internal only — no host ports are exposed.
 
 ---
 

@@ -1,16 +1,22 @@
 # `data_processing.utils.german_funding_fetcher`
 
-Provides a simple HTTP download helper for the German funding source archive.
+HTTP file downloader for the German federal funding dataset ZIP.
+
+---
 
 ## Class `FileDownloader`
 
-### `download(url, target_path)`
+Downloads a remote file via HTTP GET and writes it to disk.
 
-Downloads a file from `url` and stores it at `target_path`.
+### `download(url: str, target_path: Path) -> None`
 
-#### Behavior
+Fetch a URL and save the response body to `target_path`.
 
-- Creates parent directories for the target file.
-- Executes an HTTP GET request with a 30-second timeout.
-- Raises an exception for non-success HTTP responses.
-- Writes the downloaded response body to disk.
+**Parameters:**
+
+- `url` (`str`): HTTP/HTTPS URL to download.
+- `target_path` (`Path`): Local path where the downloaded content is written; parent directories are created automatically.
+
+**Returns:** `None`
+
+**Raises:** `requests.HTTPError` — If the server returns a non-2xx status code (via `response.raise_for_status()`).

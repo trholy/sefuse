@@ -1,16 +1,19 @@
 # `data_processing.processing.german_funding_processor`
 
-Provides the German dataset transformation hook before shared cleanup and storage.
+German-funding-specific processing hook for date column normalisation before shared pipeline steps.
+
+---
 
 ## Class `GermanFundingProcessor`
 
-This processor currently performs a minimal schema adjustment because the German source data is already close to the target shape.
+Minimal schema adjustment for the German funding dataset. The German source data is already close to the target shape, so this processor only renames the two date columns.
 
-### `transform(df)`
+### `transform(df: pl.DataFrame) -> pl.DataFrame`
 
-Renames date columns to the shared names expected by the rest of the system:
+Rename German-specific date columns to the shared `date_1`/`date_2` schema.
 
-- `on_website_from` -> `date_1`
-- `last_updated` -> `date_2`
+**Parameters:**
 
-Returns the updated `polars.DataFrame`.
+- `df` (`pl.DataFrame`): Raw German funding DataFrame with `on_website_from` and `last_updated` columns.
+
+**Returns:** `pl.DataFrame` — DataFrame with columns renamed: `on_website_from` → `date_1`, `last_updated` → `date_2`.

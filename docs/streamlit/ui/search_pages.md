@@ -1,68 +1,161 @@
 # `streamlit.ui.search_pages`
 
-Defines reusable Streamlit page classes for German and EU funding search.
+Defines the abstract base class and concrete implementations for German and EU funding search pages.
+
+---
 
 ## Class `BaseFundingSearchPage`
 
-Abstract base class for funding search pages.
+Abstract base class for funding search pages. Subclasses define the page title, API endpoint, widget keys, sidebar controls, and result rendering. The shared `render()` method wires them together.
 
-### Constructor
+### `BaseFundingSearchPage(model: str | None = None, fastapi_url: str | None = None)`
 
-- `model`: embedding model name, defaults from `MODEL` env var.
-- `fastapi_url`: backend base URL, defaults from `FASTAPI_URL` env var.
+**Parameters:**
 
-### Abstract Properties
+- `model` (`str | None`, default `None`): Embedding model name. Falls back to the `MODEL` environment variable, then `"bge-m3"`.
+- `fastapi_url` (`str | None`, default `None`): FastAPI base URL. Falls back to the `FASTAPI_URL` environment variable, then `"http://fastapi:8000"`.
 
-- `page_title`
-- `search_endpoint`
-- `search_button_key`
-- `query_key`
+---
 
-### Concrete Properties
+### Abstract properties
 
-- `search_limit_key`: derived Streamlit widget key for result limit.
-- `no_results_message`: default message shown when no matches are found.
+| Property | Type | Description |
+|---|---|---|
+| `page_title` | `str` | Human-readable title shown in the browser tab and page header. |
+| `search_endpoint` | `str` | FastAPI endpoint path, e.g. `"/v1/search/german"`. |
+| `search_button_key` | `str` | Unique Streamlit widget key for the search button. |
+| `query_key` | `str` | Unique Streamlit widget key for the query text area. |
 
-### Abstract Methods
+---
 
-- `render_sidebar()`: renders page-specific sidebar controls and returns `(semantic_weight: float, search_limit: int, context: dict)` where *context* may contain a `filters` key forwarded to the FastAPI backend.
-- `render_result(result)`: renders one result card.
+### `search_limit_key -> str`
 
-### `render()`
+Streamlit widget key for the search-limit number input; derived automatically from `search_button_key`.
 
-Common page flow:
+**Returns:** `str`
 
-1. Configure page metadata.
-2. Render query text area.
-3. Call `render_sidebar()` to get search parameters and filter context.
-4. On button click, call `search_projects()` with all parameters (including `filters` from context).
-5. Render success/warning/error feedback and iterate results through `render_result()`.
+---
 
-All taxonomy filtering and drop-N/A logic is handled server-side by the FastAPI backend.
+### `no_results_message -> str`
+
+Message displayed when the backend returns zero matches.
+
+**Returns:** `str` — default `"No projects found."`, overridden by `GermanFundingSearchPage`.
+
+---
+
+### `render_sidebar() -> tuple[float, int, dict[str, Any]]`
+
+Abstract. Render sidebar controls and return the search configuration.
+
+**Returns:** `tuple[float, int, dict[str, Any]]` — `(semantic_weight, search_limit, context)` where `context` may contain a `filters` key forwarded to the FastAPI backend.
+
+---
+
+### `render_result(result: dict[str, Any]) -> None`
+
+Abstract. Render a single search result as a Streamlit card.
+
+**Parameters:**
+
+- `result` (`dict[str, Any]`): Project dict returned by the search backend.
+
+**Returns:** `None`
+
+---
+
+### `render() -> None`
+
+Render the full search page: page config, query text area, sidebar controls, search button, and result cards.
+
+On button click, calls `search_projects()` with all parameters (including `filters` from context). Renders success/warning/error feedback and iterates results through `render_result()`. Exceptions are caught and shown via `st.error(_friendly_search_error(...))`.
+
+**Returns:** `None`
+
+---
 
 ## Class `GermanFundingSearchPage`
 
-Implements the German federal funding UI.
+Search page for the German federal funding database. Adds taxonomy-based sidebar multiselect filters fetched from `/v1/vocab/german` and a drop-N/A checkbox.
 
-### `render_sidebar()`
+**Inherits:** `BaseFundingSearchPage`
 
-Fetches the taxonomy artifact from `/v1/vocab/german` and builds multiselect filter widgets for each field in `FIELD_CONFIG`. Displays canonical labels while storing stable taxonomy keys internally. Falls back gracefully with a sidebar warning when the taxonomy is unavailable. Returns `(semantic_weight, search_limit, context)` where *context* contains a `filters` dict with selected taxonomy keys and the `drop_na` flag.
+### Properties
 
-### Key Behavior
+| Property | Value |
+|---|---|
+| `page_title` | `"Federal Funding Database"` |
+| `search_endpoint` | `"/v1/search/german"` |
+| `search_button_key` | `"search_federal"` |
+| `query_key` | `"federal_query"` |
+| `no_results_message` | `"No projects match your selected filters."` |
 
-- Uses `/v1/search/german`.
-- Sends selected taxonomy keys and drop-N/A flag to the backend as `filters` in each search request.
-- Sidebar also exposes search limit, semantic weight slider, and drop-N/A checkbox.
+### `FIELD_CONFIG`
+
+Class-level list of `(field, label, widget_key)` triples for the four taxonomy filter fields:
+
+| `field` | `label` | `widget_key` |
+|---|---|---|
+| `funding_location` | `"Funding location"` | `"federal_locations"` |
+| `funding_type` | `"Type of funding"` | `"federal_funding_type"` |
+| `eligible_applicants` | `"Eligible applicants"` | `"federal_eligible"` |
+| `funding_area` | `"Funding area"` | `"federal_funding_area"` |
+
+---
+
+### `render_sidebar() -> tuple[float, int, dict[str, Any]]`
+
+Render German-specific sidebar with taxonomy multiselects, drop-N/A checkbox, search-limit number input, and semantic-weight slider.
+
+Fetches the taxonomy artifact from `/v1/vocab/german` via `fetch_german_taxonomy()`. Falls back gracefully with a sidebar warning when the taxonomy is unavailable. Displays canonical labels while storing stable taxonomy keys internally.
+
+**Returns:** `tuple[float, int, dict[str, Any]]` — `(semantic_weight, search_limit, context)` where `context["filters"]` contains selected taxonomy keys and the `drop_na` flag.
+
+---
+
+### `render_result(result: dict[str, Any]) -> None`
+
+Render a single German funding project by delegating to `render_german_project_result()`.
+
+**Parameters:**
+
+- `result` (`dict[str, Any]`): Project dict returned by the search backend.
+
+**Returns:** `None`
+
+---
 
 ## Class `EuFundingSearchPage`
 
-Implements the EU funding UI.
+Search page for EU funding calls. Provides a minimal sidebar (search limit and semantic weight slider) with no taxonomy filters.
 
-### `render_sidebar()`
+**Inherits:** `BaseFundingSearchPage`
 
-Renders search limit and semantic weight slider controls. Returns `(semantic_weight, search_limit, context)` where *context* is an empty dict (no taxonomy filters for EU searches).
+### Properties
 
-### Key Behavior
+| Property | Value |
+|---|---|
+| `page_title` | `"EU Funding Programs"` |
+| `search_endpoint` | `"/v1/search/eu"` |
+| `search_button_key` | `"search_eu"` |
+| `query_key` | `"eu_query"` |
 
-- Uses `/v1/search/eu`.
-- Renders cards with `render_eu_project_result`.
+---
+
+### `render_sidebar() -> tuple[float, int, dict[str, Any]]`
+
+Render EU-specific sidebar with search-limit number input and semantic-weight slider.
+
+**Returns:** `tuple[float, int, dict[str, Any]]` — `(semantic_weight, search_limit, {})` where the context dict is empty (no taxonomy filters for EU searches).
+
+---
+
+### `render_result(result: dict[str, Any]) -> None`
+
+Render a single EU funding call by delegating to `render_eu_project_result()`.
+
+**Parameters:**
+
+- `result` (`dict[str, Any]`): Project dict returned by the search backend.
+
+**Returns:** `None`
