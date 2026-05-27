@@ -453,7 +453,7 @@ async def _search_collection(
     results = qdrant_manager.search(
         query_vector=query_vector,
         query_text=query,
-        limit=limit,
+        limit=limit * TOPK_SCORES,
         semantic_weight=semantic_weight,
     )
     aggregated = _aggregate_results(results)
@@ -480,7 +480,7 @@ async def _search_collection(
         filtered.append(match)
 
     filtered.sort(key=lambda m: m["matching_score"], reverse=True)
-    return {"matches": filtered}
+    return {"matches": filtered[:limit]}
 
 
 def _load_taxonomy(path: str) -> dict[str, Any]:
