@@ -41,7 +41,7 @@ def render_home_content() -> None:
     """Render the authenticated home page with app description and navigation hints."""
     st.title("Semantic Funding Search (SeFuSe)")
     description_text = (
-        "Use **SeFuSE** to semantically search two funding sources:\n"
+        "Use **SeFuSe** to semantically search two funding sources:\n"
         "- **[Federal Funding Database:](https://www.foerderdatenbank.de/FDB/DE/Foerderprogramme/foerderprogramme.html)** Search German federal funding programs with optional filters (funding location, funding type, eligible applicants, funding area).\n"
         "- **[EU Funding Programs:](https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/home)** Search EU calls, with EU-specific fields such as description, deadline date, and publication date.\n\n"
         "On both pages, enter your project idea in natural language to get the most relevant funding calls ranked by similarity."
