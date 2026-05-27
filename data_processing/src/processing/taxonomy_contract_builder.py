@@ -34,6 +34,7 @@ class TaxonomyContractBuilder:
     """
 
     def _iter_values(self, df: pl.DataFrame, column: str) -> list[str]:
+        """Flatten and return all non-null string values from a scalar or list-typed column."""
         dtype = df.schema[column]
         if dtype.base_type() == pl.List:
             series = df.explode(column)[column]
