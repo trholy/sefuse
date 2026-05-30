@@ -233,7 +233,7 @@ class GermanFundingSearchPage(BaseFundingSearchPage):
             "Search limit",
             min_value=5,
             max_value=50,
-            value=20,
+            value=10,
             step=5,
             key=self.search_limit_key,
         )
