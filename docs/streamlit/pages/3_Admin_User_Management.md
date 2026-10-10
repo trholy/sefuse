@@ -2,7 +2,7 @@
 
 Entry-point script for the admin-only user management page.
 
-Configures the page (`page_title="SeFuSe - Admin User Management"`, centered layout), then executes auth guards and renders the three management forms.
+Executes auth guards, then renders the three management forms. Page config is set by `Home.py`; the sidebar link is shown to admins only (see [Navigation](../ui/navigation.md)), while `require_admin()` here remains the actual access check.
 
 ---
 

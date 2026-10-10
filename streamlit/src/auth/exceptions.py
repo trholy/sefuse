@@ -14,6 +14,14 @@ class AuthenticationError(AuthError):
     """Raised when user credentials are invalid."""
 
 
+class AccountDeactivatedError(AuthenticationError):
+    """Raised when an inactive user attempts to log in."""
+
+
+class AccountLockedError(AuthenticationError):
+    """Raised when an account is temporarily locked due to too many failed login attempts."""
+
+
 class AuthorizationError(AuthError):
     """Raised when the caller does not have the required permissions."""
 

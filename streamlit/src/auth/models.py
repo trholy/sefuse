@@ -1,5 +1,6 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -16,6 +17,8 @@ class UserRecord:
         is_active (bool): Whether the account is active and may log in.
         created_at (datetime): Timestamp of account creation (UTC).
         updated_at (datetime): Timestamp of last account update (UTC).
+        failed_login_attempts (int): Count of consecutive failed login attempts.
+        locked_until (datetime | None): Lockout expiry timestamp; None if not locked.
     """
 
     id: int
@@ -25,6 +28,8 @@ class UserRecord:
     is_active: bool
     created_at: datetime
     updated_at: datetime
+    failed_login_attempts: int = 0
+    locked_until: Optional[datetime] = None
 
 
 @dataclass(frozen=True)

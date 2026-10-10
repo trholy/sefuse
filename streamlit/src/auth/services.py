@@ -1,12 +1,14 @@
 import logging
+from datetime import datetime, timezone
 
 from .config import AuthSettings
 from .constants import ALLOWED_ROLES, ROLE_ADMIN, ROLE_USER
 from .exceptions import (
+    AccountDeactivatedError,
+    AccountLockedError,
     AuthenticationError,
     AuthorizationError,
     ConfigurationError,
-    UserAlreadyExistsError,
     UserNotFoundError,
     ValidationError,
 )
@@ -109,9 +111,31 @@ class AuthenticationService:
             password,
             stored_hash,
         )
-        if user is None or not valid_password or not user.is_active:
+        if user is None or not valid_password:
+            if user is not None:
+                self._repository.increment_failed_login(
+                    user.username,
+                    self._settings.login_lockout_max_attempts,
+                    self._settings.login_lockout_duration_minutes,
+                )
             logger.warning("Failed login attempt for user: %s", canonical_username)
             raise AuthenticationError("Invalid username or password.")
+
+        # Check lockout after verifying the password to avoid leaking account existence
+        if user.locked_until is not None and user.locked_until > datetime.now(timezone.utc):
+            logger.warning("Login blocked — account locked: %s", canonical_username)
+            raise AccountLockedError(
+                "Account is temporarily locked due to too many failed attempts. "
+                "Please try again later."
+            )
+
+        if not user.is_active:
+            logger.warning("Login attempt for deactivated user: %s", canonical_username)
+            raise AccountDeactivatedError(
+                "Your account has been deactivated. Please contact an administrator."
+            )
+
+        self._repository.reset_failed_login(user.username)
         logger.info("User logged in: %s", canonical_username)
         return user
 
@@ -135,16 +159,14 @@ class AuthenticationService:
         canonical_username = normalize_username(username)
         validate_password_strength(password, self._settings)
 
-        existing_user = self._repository.get_by_username(canonical_username)
-        if existing_user:
-            raise UserAlreadyExistsError("Username already exists.")
-
         password_hash = self._password_hasher.hash_password(password)
-        return self._repository.create_user(
+        result = self._repository.create_user(
             username=canonical_username,
             password_hash=password_hash,
             role=role,
         )
+        logger.info("User created: %s (role=%s)", canonical_username, role)
+        return result
 
 
 class UserManagementService:
@@ -199,6 +221,27 @@ class UserManagementService:
             username=canonical_username,
             password_hash=password_hash,
         )
+        logger.info("Password updated for user: %s", canonical_username)
+
+    def set_user_active(self, username: str, active: bool) -> None:
+        """Activate or deactivate a user account.
+
+        Args:
+            username (str): Raw username of the account to update.
+            active (bool): True to activate, False to deactivate.
+
+        Raises:
+            UserNotFoundError: If the user does not exist.
+            AuthorizationError: If the target user has the admin role.
+        """
+        canonical_username = normalize_username(username)
+        user = self._repository.get_by_username(canonical_username)
+        if user is None:
+            raise UserNotFoundError("User does not exist.")
+        if user.role == ROLE_ADMIN:
+            raise AuthorizationError("Admin accounts cannot be deactivated.")
+        self._repository.set_active(canonical_username, active)
+        logger.info("User %s set active=%s", canonical_username, active)
 
     def delete_user(self, username: str) -> None:
         """Delete a non-admin user account.
@@ -217,3 +260,4 @@ class UserManagementService:
         if user.role == ROLE_ADMIN:
             raise AuthorizationError("Admin users cannot be deleted.")
         self._repository.delete_user(canonical_username)
+        logger.info("User deleted: %s", canonical_username)

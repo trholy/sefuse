@@ -12,11 +12,19 @@ Return `True` if authentication is enabled via the `AUTH_ENABLED` environment va
 
 ---
 
+### `are_session_cookies_enabled() -> bool`
+
+Return `True` if cross-tab session cookies are active (`SESSION_COOKIES_ENABLED=true`).
+
+**Returns:** `bool`
+
+---
+
 ### `bootstrap_auth_system() -> None`
 
 Initialise session state and create the admin user on first call per session.
 
-No-op when auth is disabled or the bootstrap flag is already set in `st.session_state`.
+No-op when auth is disabled or the bootstrap flag is already set in `st.session_state`. When session cookies are enabled and no session is active, attempts to restore the session from a browser cookie via `_try_restore_session_from_cookie()`.
 
 **Returns:** `None`
 
@@ -36,6 +44,12 @@ Catches `psycopg2.OperationalError` (DB unreachable), `ConfigurationError` (bad 
 
 Authenticate a user and write them into session state on success.
 
+When `SESSION_COOKIES_ENABLED=true`: creates a database-backed session, sets a browser cookie via JavaScript (which triggers a page reload), and calls `st.stop()`. The caller should **not** call `st.rerun()` afterwards. The cookie carries the `Secure` attribute (HTTPS-only) when `SESSION_COOKIE_SECURE=true`; the default is `false` so the out-of-the-box `http://localhost` deployment can still log in.
+
+When `SESSION_COOKIES_ENABLED=false`: sets session state directly and calls `st.rerun()`. No cookies are written; each browser tab requires a separate login.
+
+Re-raises `AccountDeactivatedError` so the caller can display a specific error message.
+
 **Parameters:**
 
 - `username` (`str`): Raw username from the login form.
@@ -47,7 +61,9 @@ Authenticate a user and write them into session state on success.
 
 ### `logout_user() -> None`
 
-Clear the authenticated user from session state (logout).
+Clear the authenticated user from session state, database session, and cookie.
+
+When `SESSION_COOKIES_ENABLED=true`: deletes the database session, clears the browser cookie via JavaScript (which triggers a page reload), and calls `st.stop()`. The clearing cookie matches the `Secure` attribute used at login (`SESSION_COOKIE_SECURE`). When cookies are disabled: calls `st.rerun()` instead.
 
 **Returns:** `None`
 
@@ -89,11 +105,38 @@ Calls `require_login()` first, then checks the admin role. Shows `st.error` and 
 
 ---
 
+### `require_page_access(page_title: str, disabled_note: str) -> int`
+
+The whole entry gate for a logged-in-only page, returning the authenticated user's id.
+
+Runs, in order: `safe_bootstrap()`; then, when auth is disabled for the deployment, `st.title(page_title)` plus an `st.info` explaining why the page is empty, and `st.stop()`; otherwise `require_login()`, `render_logout_button()`, and finally the `SESSION_USER_ID` lookup, stopping with a warning when the session carries no id. Used by the Watchlist, Saved Searches and Notification Settings pages, which each repeated these six steps in full.
+
+Deliberately does **not** render the title on the success path: the callers place their own `st.title` at different points — the Saved Searches page renders its alert-matches section above its title — so titling here would reorder a page rather than tidy it.
+
+`disabled_note` completes the sentence "Authentication is disabled. …". It is passed in rather than derived from `page_title` because the subject's number varies ("Watchlist requires", "Saved searches require").
+
+**Parameters:**
+
+- `page_title` (`str`): Heading shown only on the auth-disabled branch.
+- `disabled_note` (`str`): Sentence completing the auth-disabled explanation.
+
+**Returns:** `int` — the authenticated user's id. Every other path ends in `st.stop()`, which raises, so callers can treat the result as always present.
+
+---
+
+### `get_unread_notification_count() -> int`
+
+Return the number of unread alert notifications for the current user. Returns 0 if auth is disabled, the user is not authenticated, or the database is unreachable.
+
+**Returns:** `int`
+
+---
+
 ### `render_logout_button() -> None`
 
-Render a sidebar logout button and username/role caption for authenticated users.
+Render a sidebar logout button, unread notification badge, and username/role caption for authenticated users.
 
-No-op when auth is disabled or no user is logged in. Calls `logout_user()` and `st.rerun()` when the button is clicked.
+No-op when auth is disabled or no user is logged in. Shows the unread alert count when greater than zero. Calls `logout_user()` when the button is clicked.
 
 **Returns:** `None`
 
@@ -138,6 +181,19 @@ Change a user's password via the user management service.
 
 ---
 
+### `set_user_active(username: str, active: bool) -> None`
+
+Activate or deactivate a non-admin user account.
+
+**Parameters:**
+
+- `username` (`str`): Username of the account to update.
+- `active` (`bool`): `True` to activate, `False` to deactivate.
+
+**Returns:** `None`
+
+---
+
 ### `delete_user(username: str) -> None`
 
 Delete a non-admin user via the user management service.
@@ -155,6 +211,8 @@ Delete a non-admin user via the user management service.
 ### `to_user_message(error: Exception) -> str`
 
 Convert a domain auth exception to a user-facing string suitable for `st.error(...)`.
+
+Handles `AccountDeactivatedError`, `AuthenticationError`, `UserAlreadyExistsError`, `UserNotFoundError`, `ValidationError`, `AuthorizationError`, and `ConfigurationError`.
 
 **Parameters:**
 

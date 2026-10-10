@@ -9,16 +9,10 @@ from auth.handlers import (
     list_users,
     render_logout_button,
     require_admin,
+    set_user_active,
     to_user_message,
     update_password,
 )
-
-st.set_page_config(
-    page_title="SeFuSe - Admin User Management",
-    layout="centered",
-    page_icon="favicon.jpg",
-)
-
 
 def _render_create_user() -> None:
     """Render the Create User form and create a new account on submit.
@@ -77,6 +71,45 @@ def _render_update_password(usernames: list[str]) -> None:
         return
 
     st.success(f"Password updated for `{username}`.")
+    st.rerun()
+
+
+def _render_toggle_active(non_admin_users: list[dict]) -> None:
+    """Render the Activate / Deactivate form for non-admin users.
+
+    Args:
+        non_admin_users (list[dict]): Non-admin user dicts with username and is_active.
+    """
+    st.subheader("Activate / Deactivate User")
+    if not non_admin_users:
+        st.info("No non-admin users available.")
+        return
+
+    labels = [
+        f"{u['username']} ({'active' if u['is_active'] else 'inactive'})"
+        for u in non_admin_users
+    ]
+
+    with st.form("toggle_active_form"):
+        selected_label = st.selectbox("Username", labels, key="toggle_active_user")
+        idx = labels.index(selected_label) if selected_label in labels else 0
+        selected_user = non_admin_users[idx]
+        currently_active = selected_user["is_active"]
+
+        action = "Deactivate" if currently_active else "Activate"
+        submitted = st.form_submit_button(action)
+
+    if not submitted:
+        return
+
+    try:
+        set_user_active(username=selected_user["username"], active=not currently_active)
+    except Exception as error:
+        st.error(to_user_message(error))
+        return
+
+    new_state = "activated" if not currently_active else "deactivated"
+    st.success(f"User `{selected_user['username']}` {new_state}.")
     st.rerun()
 
 
@@ -141,13 +174,11 @@ else:
     st.info("No users found.")
 
 all_usernames = [user["username"] for user in users]
-deletable_usernames = [
-    user["username"]
-    for user in users
-    if user.get("role") != ROLE_ADMIN
-]
+non_admin_users = [user for user in users if user.get("role") != ROLE_ADMIN]
+deletable_usernames = [user["username"] for user in non_admin_users]
 
 _render_create_user()
 if all_usernames:
     _render_update_password(all_usernames)
+_render_toggle_active(non_admin_users)
 _render_delete_user(deletable_usernames)

@@ -57,6 +57,18 @@ class UserRepositoryProtocol(Protocol):
         """
         ...
 
+    def set_active(self, username: str, active: bool) -> None:
+        """Set the is_active flag for an existing user.
+
+        Args:
+            username (str): Normalised username.
+            active (bool): New active state.
+
+        Raises:
+            UserNotFoundError: If no user with that username exists.
+        """
+        ...
+
     def delete_user(self, username: str) -> None:
         """Remove a user account from the backing store.
 
@@ -65,6 +77,26 @@ class UserRepositoryProtocol(Protocol):
 
         Raises:
             UserNotFoundError: If no user with that username exists.
+        """
+        ...
+
+    def increment_failed_login(
+        self, username: str, max_attempts: int, lockout_minutes: int
+    ) -> None:
+        """Increment the failed login counter and lock the account when the threshold is reached.
+
+        Args:
+            username (str): Normalised username.
+            max_attempts (int): Failure count that triggers a lockout.
+            lockout_minutes (int): Lockout duration in minutes.
+        """
+        ...
+
+    def reset_failed_login(self, username: str) -> None:
+        """Reset the failed login counter and clear any active lockout.
+
+        Args:
+            username (str): Normalised username.
         """
         ...
 

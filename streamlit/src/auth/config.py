@@ -2,6 +2,8 @@ import logging
 import os
 from dataclasses import dataclass
 
+from shared.env import parse_bool
+
 from .exceptions import ConfigurationError
 
 logger = logging.getLogger(__name__)
@@ -36,12 +38,10 @@ def _read_bool(name: str, default: bool) -> bool:
     raw = os.getenv(name)
     if raw is None:
         return default
-    value = raw.strip().lower()
-    if value in {"1", "true", "yes", "on"}:
-        return True
-    if value in {"0", "false", "no", "off"}:
-        return False
-    raise ConfigurationError(f"Invalid boolean value for {name}: {raw}")
+    parsed = parse_bool(raw)
+    if parsed is None:
+        raise ConfigurationError(f"Invalid boolean value for {name}: {raw}")
+    return parsed
 
 
 def _read_int(name: str, default: int, minimum: int = 1) -> int:
@@ -90,6 +90,10 @@ class AuthSettings:
         bcrypt_rounds (int): bcrypt cost factor; minimum 4 (``BCRYPT_ROUNDS``).
         password_min_length (int): Minimum password length enforced at creation (``PASSWORD_MIN_LENGTH``).
         session_timeout_minutes (int): Idle session expiry in minutes (``SESSION_TIMEOUT_MINUTES``).
+        session_cookies_enabled (bool): Whether cross-tab session cookies are active (``SESSION_COOKIES_ENABLED``).
+        session_cookie_secure (bool): Whether the session cookie carries the ``Secure``
+            attribute (``SESSION_COOKIE_SECURE``). Defaults to False so the out-of-the-box
+            ``http://localhost`` deployment can log in; set True when serving over HTTPS.
     """
 
     enabled: bool
@@ -104,6 +108,10 @@ class AuthSettings:
     bcrypt_rounds: int
     password_min_length: int
     session_timeout_minutes: int
+    session_cookies_enabled: bool
+    session_cookie_secure: bool
+    login_lockout_max_attempts: int
+    login_lockout_duration_minutes: int
 
 
 def load_auth_settings() -> AuthSettings:
@@ -143,4 +151,8 @@ def load_auth_settings() -> AuthSettings:
         bcrypt_rounds=_read_int("BCRYPT_ROUNDS", 12, minimum=4),
         password_min_length=_read_int("PASSWORD_MIN_LENGTH", 8),
         session_timeout_minutes=_read_int("SESSION_TIMEOUT_MINUTES", 30),
+        session_cookies_enabled=_read_bool("SESSION_COOKIES_ENABLED", True),
+        session_cookie_secure=_read_bool("SESSION_COOKIE_SECURE", False),
+        login_lockout_max_attempts=_read_int("LOGIN_LOCKOUT_MAX_ATTEMPTS", 5),
+        login_lockout_duration_minutes=_read_int("LOGIN_LOCKOUT_DURATION_MINUTES", 15),
     )

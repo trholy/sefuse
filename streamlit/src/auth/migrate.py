@@ -1,8 +1,13 @@
+import logging
+import os
 from pathlib import Path
 
 import psycopg2
 
 from .config import load_auth_settings
+
+_LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(level=getattr(logging, _LOG_LEVEL, logging.INFO))
 
 
 def _migrations_dir() -> Path:
