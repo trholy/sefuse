@@ -1,4 +1,4 @@
-# `streamlit.pages.3_Admin_User_Management`
+# `streamlit.app_pages.3_Admin_User_Management`
 
 Entry-point script for the admin-only user management page.
 

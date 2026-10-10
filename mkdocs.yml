@@ -7,6 +7,12 @@ nav:
   - Home: README.md
   - Shared Module:
       - Taxonomy Contract: shared/taxonomy_contract.md
+      - Env: shared/env.md
+      - Alerts Config: shared/alerts_config.md
+      - Alert Levels: shared/alert_levels.md
+      - Gotify Client: shared/gotify.md
+      - Gotify Config: shared/gotify_config.md
+      - Secrets Box: shared/secrets_box.md
   - Data Processing Module:
       - EU Funding Main: data_processing/eu_funding_main.md
       - German Funding Main: data_processing/german_funding_main.md
@@ -30,6 +36,7 @@ nav:
       - Search Service: fastapi/utils/search_service.md
       - FastAPI Utils: fastapi/utils/fastapi_utils.md
       - Qdrant Utils: fastapi/utils/qdrant_utils.md
+      - Job Runner: fastapi/utils/job_runner.md
   - Infrastructure:
       - Docker Compose: infrastructure/docker_compose.md
       - Dockerfiles: infrastructure/dockerfiles.md
@@ -40,11 +47,16 @@ nav:
           - Handlers: streamlit/auth/handlers.md
           - Services: streamlit/auth/services.md
           - Migrate: streamlit/auth/migrate.md
+          - Cookies: streamlit/auth/cookies.md
+          - Repositories: streamlit/auth/repositories.md
       - Pages:
           - Federal Funding Database: streamlit/pages/1_Federal_Funding_Database.md
           - EU Funding Programs: streamlit/pages/2_EU_Funding_Programs.md
           - Admin User Management: streamlit/pages/3_Admin_User_Management.md
-          - How to Use: streamlit/pages/4_How_to_Use.md
+          - Watchlist: streamlit/pages/4_Watchlist.md
+          - Saved Searches: streamlit/pages/5_Saved_Searches.md
+          - How to Use: streamlit/pages/6_How_to_Use.md
+          - Notification Settings: streamlit/pages/7_Notification_Settings.md
       - UI:
           - Navigation: streamlit/ui/navigation.md
           - Search Pages: streamlit/ui/search_pages.md

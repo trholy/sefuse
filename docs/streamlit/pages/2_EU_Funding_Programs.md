@@ -1,4 +1,4 @@
-# `streamlit.pages.2_EU_Funding_Programs`
+# `streamlit.app_pages.2_EU_Funding_Programs`
 
 Entry-point script for the EU funding search page.
 

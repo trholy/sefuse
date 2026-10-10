@@ -127,7 +127,7 @@ Filters are applied **before** normalising, and the scores that survive are divi
 
 ### `collection_noise_floor(qdrant_manager: QdrantManager, collection_type: str, client: httpx.AsyncClient) -> float`
 
-The collection's alert noise floor: the best cosine any `match_levels.CANARIES` query reaches there, plus `ALERT_NOISE_MARGIN`. Embeds the canaries once per collection and caches the result in `_NOISE_FLOORS`, which `invalidate_noise_floor` clears after that collection's embedding run. See [Saved-Search Alerts](alerts.md).
+The collection's alert noise floor: the best cosine any `match_levels.CANARIES` query reaches there, plus `ALERT_NOISE_MARGIN`. Embeds the canaries once per collection and caches the result in `_NOISE_FLOORS`, which `invalidate_noise_floor` clears after that collection's embedding run. See [Saved-Search Alerts](../alerts.md).
 
 ---
 

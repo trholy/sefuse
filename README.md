@@ -16,6 +16,7 @@ SeFuSe lets you **describe your project in plain language** and returning the fu
 - **Bilingual** - handles German and English text natively.
 - **Hybrid search** - combines semantic understanding (what your project *means*) with keyword matching (specific terms), so you get good results even with short or vague descriptions.
 - **Self-updating** - the system automatically refreshes funding data from the source databases on a configurable schedule.
+- **Saved searches, watchlist and alerts** - save a search, bookmark programs, and be told when a new program matches a saved search.
 
 A short demo video is available here: [▶ YouTube Video](https://youtu.be/wau3Kw_P8QQ)
 
@@ -25,7 +26,7 @@ A short demo video is available here: [▶ YouTube Video](https://youtu.be/wau3K
 
 SeFuSe was developed in response to an urgent practical need: staff in transfer centres, researchers, and other users who regularly need to identify suitable funding programs were spending significant time manually browsing large databases with limited search capabilities.
 
-Comparable tools rely on **OpenAI’s Custom GPTs** or similar cloud-based services. This means project ideas and research descriptions are routinely sent to commercial third parties. SeFuSe avoids this entirely — when operated on local infrastructure, **no data leaves the system**. There are no calls to external APIs beyond fetching the funding datasets themselves, and no long-term data storage. The model, the vectors, and the search all run on your own hardware.
+Comparable tools rely on **OpenAI’s Custom GPTs** or similar cloud-based services. This means project ideas and research descriptions are routinely sent to commercial third parties. SeFuSe avoids this entirely — when operated on local infrastructure, **no data leaves the system**. There are no calls to external APIs beyond fetching the funding datasets themselves. The model, the vectors, and the search all run on your own hardware. A search query is stored only if a user saves it as a saved search, and then only in the local database. The one optional exception is push notifications: if you switch on Gotify, the titles of matching programs and of the saved search are sent to the Gotify server you configured.
 
 The goal is to make the search for relevant funding simpler and more accessible, particularly for institutions that handle sensitive project ideas or operate under data protection constraints.
 
@@ -83,17 +84,18 @@ copy .env.example .env
 Copy-Item .env.example .env
 ```
 
-Now open `.env` in any text editor (Notepad works fine) and replace the three placeholder values:
+Now open `.env` in any text editor (Notepad works fine) and replace the four placeholder values:
 
 | Line in `.env` | What to change | Example |
 |---|---|---|
 | `POSTGRES_PASSWORD=change_me_db_password` | Replace with any password for the internal database. You will not need to type this manually. | `POSTGRES_PASSWORD=change_me_db_password` |
 | `ADMIN_PASSWORD=change_me_admin_password` | Replace with the password you want to use to log in to the web interface. | `ADMIN_PASSWORD=change_me_admin_password` |
 | `INTERNAL_API_TOKEN=change_me_to_a_random_secret` | Replace with a long random string. This is an internal security token - it does not need to be memorable. | `INTERNAL_API_TOKEN=change_me_to_a_random_secret` |
+| `QDRANT_API_KEY=change_me_qdrant_api_key` | Replace with another long random string. It protects the internal vector database - it does not need to be memorable either. | `QDRANT_API_KEY=change_me_qdrant_api_key` |
 
 Everything else in `.env` can be left at its default value to get started.
 
-> **Important:** SeFuSe will refuse to start if any of these three values still start with `change_me`. This is intentional - it prevents accidentally running with insecure defaults.
+> **Important:** SeFuSe will refuse to start if any of these four values still start with `change_me`. This is intentional - it prevents accidentally running with insecure defaults.
 
 ---
 
@@ -161,18 +163,40 @@ Your indexed data and downloaded model are stored in the `./data/` and `./ollama
 
 ---
 
+## Saved Searches, Watchlist and Alerts
+
+Each user has their own saved searches, watchlist and alert inbox.
+
+- **Watchlist** - every search result has an **Add to Watchlist** checkbox. The **Watchlist** page lists the bookmarked programs, grouped into Federal and EU funding, with a link to each.
+- **Saved searches** - after a search, **Save Search** stores the query together with its filters, semantic weight and result limit. The **Saved Searches** page lists them; **Restore** reopens the search page with the same settings.
+- **Alerts** - an alert can be enabled per saved search. Once a day (`ALERT_CHECK_HOUR`, default 05:00 UTC) SeFuSe checks the programs that are new since the alert was enabled and notifies you about those that match.
+
+A new program counts as a match when it passes the saved search's filters, would rank among the top existing programs for the saved query, and scores above what deliberately off-topic probe queries reach in that collection. How high it must rank is the alert's level:
+
+| Level | A new program must rank among the saved query's |
+|---|---|
+| Broad | top 25 existing programs |
+| Balanced (default) | top 10 |
+| Strict | top 3 |
+
+Matches appear under **Alert Matches** on the Saved Searches page. A program is announced once per saved search, and near-copies of an already indexed program do not alert. Alerts are judged on the semantic (dense) similarity only.
+
+Optionally, matches are also pushed through a self-hosted [Gotify](https://gotify.net) server - see [Push notifications (Gotify)](#push-notifications-gotify). Set `ALERTS_ENABLED=false` to switch alerts off entirely; saved searches and the watchlist keep working.
+
+---
+
 ## How the System Works
 
 The five services interact across three Docker networks (`backend`, `frontend`, `egress`). Here is the full data flow from raw source data to a search result:
 
 ### Indexing (runs at startup and on schedule)
 
-1. **FastAPI** triggers the data processing pipeline (German or EU). For German funding, the raw Parquet ZIP is downloaded from the Federal Funding Database CDN. For EU funding, open and forthcoming calls are fetched page-by-page from the EU Funding & Tenders Portal API.
-2. **FastAPI** cleans and transforms the raw data: HTML is stripped, fields are extracted, each program receives a deterministic UUID, and the result is written to a Parquet file with a taxonomy JSON sidecar.
+1. **FastAPI** triggers the data processing pipeline (German or EU). For German funding, the CSV that CorrelAid's [fdb_scraper](https://github.com/CorrelAid/fdb_scraper) publishes weekly from the Federal Funding Database is downloaded, with a fallback to the last downloaded copy if the host is unavailable. For EU funding, open and forthcoming calls are fetched page-by-page from the EU Funding & Tenders Portal API.
+2. **FastAPI** cleans and transforms the raw data: HTML is stripped, fields are extracted, each program receives a deterministic UUID, and the result is written to a Parquet file with a taxonomy JSON sidecar. A refresh whose row count drops by more than `DATA_REFRESH_MAX_DROP_RATIO` is refused, so a truncated download is not read as programs being withdrawn.
 3. **FastAPI** reads the Parquet file and splits each program description into text chunks. Documents under `ADAPTIVE_CHUNK_THRESHOLD` tokens (default 600) are kept as a single chunk. Longer documents are split into 512-token windows with 62-token overlap, snapped to the last sentence boundary in the trailing quarter to avoid mid-sentence cuts.
-4. Each chunk is prepended with a contextual header (`Title: ...\nFunding area: ...\n\n`) so it is self-contained for retrieval. **FastAPI** sends all chunks for one project in a single batched embed request to **Ollama** (`bge-m3`, 1024-dim dense vector).
+4. Each chunk is prepended with a contextual header (title, funding type, funding area, eligible applicants, keywords and summary, where stated) so it is self-contained for retrieval. **FastAPI** sends all chunks for one project in a single batched embed request to **Ollama** (`bge-m3`, 1024-dim dense vector).
 5. **FastAPI** also builds a sparse BM25-style vector for each chunk, analysed in the collection's own language. German funding: German + English stopwords are removed, then German Snowball stemming and compound splitting. EU funding (English-only text): English stopwords and English Snowball stemming, with no compound splitting — English compounds are space-separated, and the German fugen splitter only produces noise on them. Either way, term frequencies are BM25-saturated (`k1=1.2`) and token indices are hashed via MD5.
-6. Each chunk is stored in **Qdrant** as its own point with a deterministic UUID5 ID (`uuid5(project_uuid, "chunk_{i}")`), carrying both `dense` and `sparse` named vectors plus the project metadata as payload. Stale points from removed programs are cleaned up via a payload filter on `project_uuid`.
+6. Each chunk is stored in **Qdrant** as its own point with a deterministic UUID5 ID (`uuid5(project_uuid, "chunk_{i}")`), carrying both `dense` and `sparse` named vectors plus the project metadata as payload. Stale points from removed programs are cleaned up via a payload filter on `project_uuid`. A program whose text changed is re-embedded, and one whose displayed fields changed has its payload rewritten without a new embedding.
 
 ### Search (per user query)
 
@@ -211,7 +235,7 @@ All indexed data survives container restarts through Docker volumes:
 | `./data/qdrant` | All Qdrant collections — dense and sparse vectors plus payloads | `0` |
 | `./data/funding_data` | Processed Parquet files and taxonomy JSON sidecars | `10001` |
 | `./ollama/data` | Downloaded `bge-m3` model weights | `999` |
-| `./data/postgres` | User accounts and bcrypt hashes | `70` |
+| `./data/postgres` | User accounts and bcrypt hashes, login sessions, saved searches, watchlists, alert matches and first-seen timestamps | `70` |
 
 On Linux these are bind mounts, so they keep host ownership and must be owned by the UID of
 the non-root user inside each container — that is what `sudo ./setup.sh` sets up (Step 4).
@@ -248,7 +272,10 @@ Three Docker networks enforce network isolation:
 
 ```yaml
 qdrant:
-  image: qdrant/qdrant
+  image: qdrant/qdrant:v1.18
+  environment:
+    - QDRANT__TELEMETRY_DISABLED=true
+    - QDRANT__SERVICE__API_KEY=${QDRANT_API_KEY}
   volumes:
     - ./data/qdrant:/qdrant/storage
 ```
@@ -257,6 +284,7 @@ Qdrant stores all embedding vectors and metadata using a hybrid schema (dense co
 
 * **Persistent storage:** `./data/qdrant`
 * **Internal only:** Qdrant is not exposed on the host - only reachable by FastAPI inside the Docker backend network.
+* **API key:** requests must carry `QDRANT_API_KEY`, which FastAPI sends. Telemetry is switched off.
 * **Payload indexes:** Keyword indexes on `project_uuid` and taxonomy key fields accelerate filter queries
 
 This ensures that embeddings survive container restarts.
@@ -337,6 +365,8 @@ FastAPI is the **brain of the system**. It:
 | `CRON_TRIGGER_EU_DATA_PROCESSING`     | Hour (0–23) when EU funding data is refreshed        |
 | `CRON_TRIGGER_EU_EMBEDDING`           | Hour (0–23) when EU embeddings are refreshed         |
 | `ALERTS_ENABLED`                      | Master switch for saved-search alerts (default `true`). `false` switches the feature off entirely: no nightly check job, no alert inbox, no sidebar badge, no alert controls in the UI, and every `ALERT_*`/`GOTIFY_*` setting below is ignored. Saved searches keep working. |
+| `ALERT_CHECK_HOUR`                    | Hour (0–23, UTC) of the daily saved-search alert check (default `5`) |
+| `ALERT_NOTIFICATION_RETENTION_DAYS`   | Days an alert match stays in the in-app inbox before it is pruned (default `30`) |
 | `ALERT_LEVEL_RULES`                   | Optional JSON `{"level": k}` overriding how many top existing programmes a new one must rank among (default Broad 25, Balanced 10, Strict 3) |
 | `ALERT_NOISE_MARGIN`                  | How far above the best off-topic canary cosine a new programme must score to alert (default 0.04) |
 | `FIRST_SEEN_BURST_MIN` / `FIRST_SEEN_BURST_RATIO` | Re-key guard: a larger burst of "new" programmes is stamped as legacy (default 25 / 0.1) |
@@ -344,6 +374,8 @@ FastAPI is the **brain of the system**. It:
 | `OLLAMA_URL`                          | Internal Ollama API endpoint                         |
 | `VECTOR_DB_HOST`                      | Qdrant hostname inside Docker                        |
 | `QDRANT_PORT`                         | Qdrant service port                                  |
+| `QDRANT_API_KEY`                      | API key FastAPI sends to Qdrant. Must not start with `change_me`; if left empty, Qdrant runs without authentication and FastAPI logs a warning (see [Security notes](#security-notes)). |
+| `VECTOR_DIMENSION`                    | Dense vector size; must match the embedding model (default `1024` for `bge-m3`) |
 | `BM25_K1`                             | BM25 saturation parameter (default `1.2`)            |
 | `ADAPTIVE_CHUNK_THRESHOLD`            | Token count below which docs stay as one chunk (default `600`) |
 | `TOPK_SCORES`                         | Top-K chunk scores averaged per project (default `3`) |
@@ -352,7 +384,9 @@ FastAPI is the **brain of the system**. It:
 | `OLLAMA_MODEL_READY_INTERVAL`         | Seconds between Ollama readiness probes on startup (default `10`) |
 | `OLLAMA_MODEL_READY_TIMEOUT`          | Max seconds to wait for Ollama before skipping embeddings (default `600`) |
 | `EU_API_KEY`                          | API key for the EU Funding & Tenders Portal search API (`SEDIA`). |
-| `EU_MAX_PAGES`                        | Maximum pages fetched from the EU API per run (default `100`) |
+| `EU_MAX_PAGES`                        | Maximum pages fetched from the EU API per run (default `100`). Reaching it aborts the fetch. |
+| `DATA_REFRESH_MAX_DROP_RATIO`         | How far the row count may fall against the previous run before a refresh is refused (default `0.2`) |
+| `LOG_LEVEL`                           | Log level for FastAPI and Streamlit: `DEBUG`, `INFO`, `WARNING` or `ERROR` (default `INFO`) |
 | `INTERNAL_API_TOKEN`                  | Shared secret between FastAPI and Streamlit. Required at startup (see [Security notes](#security-notes)). |
 | `ALLOW_UNAUTHENTICATED_INTERNAL_API`  | Set `true` to skip token auth in local dev. Logs a warning. |
 
@@ -429,6 +463,7 @@ Streamlit provides the **user interface** where users enter project descriptions
 | `SESSION_TIMEOUT_MINUTES`  | Idle session expiry in minutes (default `30`)                    |
 | `BCRYPT_ROUNDS`            | bcrypt cost factor for password hashing (default `12`)           |
 | `PASSWORD_MIN_LENGTH`      | Minimum character length for user passwords (default `8`)        |
+| `SESSION_COOKIES_ENABLED`  | Keeps a login across browser tabs and page reloads through a session cookie; `false` requires a login per tab (default `true`) |
 | `SESSION_COOKIE_SECURE`    | Adds the `Secure` attribute to the session cookie; set `true` behind TLS (default `false`) |
 | `LOGIN_LOCKOUT_MAX_ATTEMPTS` | Consecutive failed logins before an account is temporarily locked (default `5`) |
 | `LOGIN_LOCKOUT_DURATION_MINUTES` | How long such a lock lasts, in minutes (default `15`)        |
@@ -444,8 +479,10 @@ Before running for the first time, copy `.env.example` to `.env` and replace all
 | Variable | Requirement |
 |---|---|
 | `INTERNAL_API_TOKEN` | Arbitrary secret shared by FastAPI and Streamlit. Use a random 32+ character string. |
+| `QDRANT_API_KEY` | API key for the internal Qdrant database. Use a random 32+ character string. Must not start with `change_me`; an empty value leaves Qdrant unauthenticated. |
 | `ADMIN_PASSWORD` | Admin account password. Must not start with `change_me`. |
 | `DB_PASSWORD` / `POSTGRES_PASSWORD` | PostgreSQL password. Must not start with `change_me`. |
+| `GOTIFY_SECRET_KEY` | Only when `GOTIFY_ENABLED=true`: Fernet key that encrypts users' Gotify tokens. |
 
 For local development without a token, set `ALLOW_UNAUTHENTICATED_INTERNAL_API=true` in `.env`. This logs a startup warning.
 
@@ -474,6 +511,10 @@ Authentication is handled entirely by Streamlit and backed by PostgreSQL. FastAP
 
 All Streamlit pages require a valid session. Users log in with a username and password on the landing page. There is no self-registration — accounts are created by an admin. Sessions expire after `SESSION_TIMEOUT_MINUTES` (default 30) minutes of inactivity.
 
+A login is kept across browser tabs and page reloads through a session cookie backed by the database. Set `SESSION_COOKIES_ENABLED=false` to require a login per tab, and `SESSION_COOKIE_SECURE=true` when serving SeFuSe over HTTPS.
+
+After `LOGIN_LOCKOUT_MAX_ATTEMPTS` consecutive failed logins (default 5) an account is locked for `LOGIN_LOCKOUT_DURATION_MINUTES` (default 15).
+
 ### Passwords
 
 Passwords are hashed with **bcrypt** before storage. The cost factor is configurable via `BCRYPT_ROUNDS` (default `12`). Requirements at creation or password change:
@@ -488,7 +529,7 @@ The login flow performs a constant-time bcrypt check even for unknown usernames 
 
 Two roles exist: `admin` and `user`. The admin account is bootstrapped automatically on first start from `ADMIN_USERNAME` and `ADMIN_PASSWORD` in `.env`. If the account already exists its password is updated to match `.env` on every restart, so changing `ADMIN_PASSWORD` and restarting the stack resets the admin credential.
 
-Admins have access to the **Admin User Management** page where they can create, deactivate, and delete user accounts and reset passwords. Regular users only see the search pages.
+Admins have access to the **Admin User Management** page where they can create, deactivate, and delete user accounts and reset passwords. A deactivated account cannot log in. Regular users see the search pages, their Watchlist and Saved Searches, the How to Use page and - when push notifications are switched on - Notification Settings.
 
 ### Disabling authentication
 

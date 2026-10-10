@@ -12,7 +12,7 @@ The page scripts live in `streamlit/src/app_pages/` (`/app/app_pages/` in the co
 
 Streamlit switches to its legacy multi-page mode whenever a directory called `pages` sits next to the entry-point script (`PagesManager.uses_pages_directory`). In that mode Streamlit builds the sidebar itself from every `*.py` file it finds there and runs the selected page — so `Home.py` never executes for any page but the default, and the admin link reappears for every user regardless of what this module returns.
 
-Renaming the directory back to `pages/` silently reverts the admin-only navigation. `tests/test_streamlit/test_navigation.py` asserts the `app_pages/` prefix to catch that.
+Renaming the directory back to `pages/` silently reverts the admin-only navigation.
 
 ---
 

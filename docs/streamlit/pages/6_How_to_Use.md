@@ -1,4 +1,4 @@
-# `streamlit.pages.4_How_to_Use`
+# `streamlit.app_pages.6_How_to_Use`
 
 Static informational page that teaches users how to write effective semantic search queries for the funding databases.
 

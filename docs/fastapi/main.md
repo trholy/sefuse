@@ -53,7 +53,7 @@ The `ALLOW_UNAUTHENTICATED_INTERNAL_API` / `RUN_STARTUP_PIPELINES_SYNC` booleans
 | Constant | Type | Default | Description |
 |---|---|---|---|
 | `INTERNAL_API_TOKEN` | `str` | `""` | Shared secret read from the `INTERNAL_API_TOKEN` env var. |
-| `_QDRANT_API_KEY` | `str` | `""` | Qdrant API key from `QDRANT_API_KEY`; empty warns (no auth), `change_me*` exits. |
+| `QDRANT_API_KEY` (in `utils.qdrant_utils`) | `str \| None` | `None` | Qdrant API key from the `QDRANT_API_KEY` env var, passed to the Qdrant client. `validate_startup()` warns when it is empty (no auth) and exits on a `change_me*` value. |
 | `OLLAMA_URL` | `str` | `"http://ollama:11434"` | Base URL of the Ollama embedding service. |
 | `EMBED_MODEL` | `str` | `"bge-m3"` | Ollama model name used for query embedding. |
 | `TOKENIZER` | `str` | `"BAAI/bge-m3"` | HuggingFace tokenizer identifier. |

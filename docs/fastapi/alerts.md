@@ -23,7 +23,7 @@ Once a day at `ALERT_CHECK_HOUR`, for every saved search with `alert_enabled = T
 2. **Scoring** — `main._alert_score_fn` embeds the saved query once and scores only
    those candidates, exactly (non-HNSW), one best chunk per programme.
 3. **Filters** — the saved taxonomy filters and drop-N/A are applied through the same
-   `_apply_result_filters` interactive search uses.
+   `apply_result_filters` interactive search uses.
 4. **Judging** — each survivor is judged by `match_levels.judge` against the saved
    level (see below).
 5. **Delivery** — passing matches go to the in-app inbox and, if the user has a
@@ -130,7 +130,7 @@ Measured on the live index (September 2026): German floor `0.536`, EU floor `0.5
 | `ALERT_NOISE_MARGIN` | `0.04` | How far above the best canary cosine a candidate must score. |
 | `FIRST_SEEN_BURST_MIN` / `FIRST_SEEN_BURST_RATIO` | `25` / `0.1` | Re-key burst guard. |
 | `DUPLICATE_COSINE` | `0.97` | Near-duplicate threshold. |
-| `GOTIFY_*` | — | Push delivery; see `fastapi/CLAUDE.md`. |
+| `GOTIFY_*` | — | Push delivery; see [Gotify Config](../shared/gotify_config.md). |
 
 ---
 

@@ -1,4 +1,4 @@
-# `streamlit.pages.1_Federal_Funding_Database`
+# `streamlit.app_pages.1_Federal_Funding_Database`
 
 Entry-point script for the German federal funding search page.
 
