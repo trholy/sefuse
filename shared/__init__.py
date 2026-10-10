@@ -15,3 +15,8 @@ __all__ = [
     "TAXONOMY_FALLBACK_KEY",
     "taxonomy_key_set",
 ]
+
+# Gotify helpers are deliberately not re-exported here: importing them pulls in
+# ``requests`` and ``cryptography``, and the taxonomy contract must stay
+# importable in contexts that have neither. Import from the submodules directly
+# (``from shared.gotify import GotifyClient``).
