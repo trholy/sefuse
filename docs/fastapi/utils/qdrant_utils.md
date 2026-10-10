@@ -13,7 +13,9 @@ Manages a Qdrant collection configured for hybrid (dense + sparse) vector search
 | `DENSE_VECTOR_NAME` | `str` | `"dense"` | Named vector key for dense embeddings. |
 | `SPARSE_VECTOR_NAME` | `str` | `"sparse"` | Named vector key for sparse BM25-style vectors. |
 | `PREFETCH_LIMIT_MULTIPLIER` | `int` | `5` | Multiplier applied to `limit` when computing per-branch prefetch sizes for CC fusion. |
-| `STOPWORDS` | `frozenset[str]` | — | German and English stopwords from the `stop-words` library, filtered before tokenization. |
+| `GERMAN` / `ENGLISH` | `str` | `"german"` / `"english"` | The two supported sparse-analysis languages. |
+| `_STOPWORDS` | `dict[str, frozenset[str]]` | — | Stopwords per language from the `stop-words` library, filtered before tokenization. `german` is the German + English union; `english` is English only. |
+| `_STEMMERS` | `dict[str, Stemmer]` | — | Snowball stemmer per language. |
 | `BM25_K1` | `float` | `1.2` | BM25 term-frequency saturation parameter. |
 | `PAYLOAD_INDEX_FIELDS` | `tuple[str, ...]` | `("project_uuid", "funding_type_keys", "funding_area_keys", "funding_location_keys", "eligible_applicants_keys")` | Payload fields that receive keyword indexes for fast filtering. |
 
@@ -44,6 +46,8 @@ Tries every candidate split position and fugen element (`s`, `es`, `n`, `en`, `e
 
 Decorated with `@lru_cache(maxsize=10_000)` — repeated compound strings (funding area and location values) are split only once per process lifetime.
 
+Called for German text only. English compounds are space-separated, so the German fugen elements produce nothing but noise on English input (`organisation` → `organi` + `ation`).
+
 **Parameters:**
 
 - `word` (`str`): Lowercased token to attempt splitting.
@@ -56,7 +60,7 @@ Decorated with `@lru_cache(maxsize=10_000)` — repeated compound strings (fundi
 
 Manages a Qdrant collection with a hybrid-search schema (dense cosine + IDF sparse). On construction the collection is created or migrated as needed.
 
-### `QdrantManager(host: str = VECTOR_DB_HOST, port: int = QDRANT_PORT, collection_name: str = "fundings")`
+### `QdrantManager(host: str = VECTOR_DB_HOST, port: int = QDRANT_PORT, collection_name: str = "fundings", language: str = GERMAN)`
 
 Connect to Qdrant and ensure the named collection is hybrid-search ready.
 
@@ -65,6 +69,9 @@ Connect to Qdrant and ensure the named collection is hybrid-search ready.
 - `host` (`str`, default `VECTOR_DB_HOST`): Qdrant server hostname.
 - `port` (`int`, default `QDRANT_PORT`): Qdrant HTTP/gRPC port.
 - `collection_name` (`str`, default `"fundings"`): Name of the collection to manage (e.g. `"fundings_german"`, `"fundings_eu"`).
+- `language` (`str`, default `GERMAN`): Language of the indexed text, selecting the stopword list and stemmer used for sparse vectors. Raises `ValueError` for an unsupported value.
+
+`language` is also a **class attribute** defaulting to `GERMAN`, so instances built via `__new__` (as several tests do) still resolve `self.language`.
 
 ---
 
@@ -131,15 +138,18 @@ Silently skips fields whose indexes already exist. Indexes accelerate `FilterSel
 
 ---
 
-### `_tokenize(text: str) -> list[str]`
+### `_tokenize(text: str, language: str = GERMAN) -> list[str]`
 
 Tokenize, stem, and compound-expand text for sparse vector construction.
 
-Pipeline: lowercase → regex word extraction (`\b\w+\b`) → stopword removal → German Snowball stemming → compound splitting (with stemming of split parts). Compound parts are appended alongside the original stem.
+Pipeline: lowercase → regex word extraction (`\b\w+\b`) → stopword removal → Snowball stemming in `language` → compound splitting (with stemming of split parts). Compound parts are appended alongside the original stem.
+
+Compound splitting runs for `GERMAN` only; see `_split_compound`.
 
 **Parameters:**
 
 - `text` (`str`): Input text (typically an enriched chunk with contextual header).
+- `language` (`str`, default `GERMAN`): Language whose stopword list and stemmer to use.
 
 **Returns:** `list[str]` — stemmed and expanded tokens (may contain duplicates for term-frequency counting).
 
@@ -171,21 +181,24 @@ Applies `_bm25_saturate` to each term frequency, maps tokens to 32-bit indices v
 
 ---
 
-### `_build_sparse_vector(text: str) -> SparseVector`
+### `_build_sparse_vector(text: str, language: str = GERMAN) -> SparseVector`
 
 Build a BM25-saturated sparse vector from raw text. Thin wrapper around `_build_sparse_vector_from_tokens`.
 
 **Parameters:**
 
 - `text` (`str`): Input text to vectorize.
+- `language` (`str`, default `GERMAN`): Language whose stopword list and stemmer to use.
 
 **Returns:** `SparseVector` — sparse vector, or empty when no tokens survive filtering.
 
 ---
 
-### `_build_point_vector(embedding: list[float], chunk_text: str) -> dict[str, Any]`
+### `_build_point_vector(self, embedding: list[float], chunk_text: str) -> dict[str, Any]`
 
 Combine a pre-computed dense embedding and a chunk-text-derived sparse vector into a named-vector dict.
+
+An **instance method** (not static) so the sparse vector is built in this collection's own `language`.
 
 **Parameters:**
 
@@ -220,6 +233,36 @@ Delete all Qdrant points belonging to the given project UUIDs using a `FilterSel
 - `project_uuids` (`list[str]`): Project UUIDs whose chunk-points should be removed.
 
 **Returns:** `None`
+
+---
+
+### `set_project_payload(project_uuid: str, payload: dict[str, Any]) -> None`
+
+Update the payload of every chunk of one project, leaving its vectors untouched.
+
+Used for a project whose displayed fields changed but whose embedded text did not: re-embedding it would produce identical vectors at the cost of an Ollama round trip per chunk. Targets the project with the same `Filter`/`FieldCondition`/`MatchAny` shape as `delete_projects`.
+
+!!! note "set_payload merges, it does not replace"
+    That is what preserves each chunk's own `chunk_index`, which is why `build_project_payload` leaves that key out. The corollary is that a key *removed* from the source is not removed here; it clears on the project's next re-embed, or on a manual rebuild.
+
+**Parameters:**
+
+- `project_uuid` (`str`): Project whose chunks should be updated.
+- `payload` (`dict[str, Any]`): Project-level payload, without `chunk_index`.
+
+**Returns:** `None`
+
+---
+
+### `best_chunk_per_project(query_vector, *, project_uuids=None, exclude=None, limit=None, with_payload=True) -> list[ScoredPoint]`
+
+Return each project's best-scoring dense chunk, best project first, via `query_points_groups(group_by="project_uuid", group_size=1)`. Every project takes exactly one slot, so no chunk budget has to be guessed. With `project_uuids` the search is exact (non-HNSW) and restricted to those projects, and `limit` defaults to their count; otherwise `limit` is required. `exclude` leaves projects out. Used by the alert job (candidate scores, rank reference, canary noise floor) and the near-duplicate check.
+
+---
+
+### `project_vector(project_uuid: str) -> list[float] | None`
+
+Fetch the dense vector of a project's first chunk by its id (`uuid5(project_uuid, "chunk_0")`), or `None` when it is missing. Used by `Pipeline._mark_duplicates`.
 
 ---
 

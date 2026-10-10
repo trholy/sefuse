@@ -14,11 +14,88 @@ Implements shared embedding-pipeline logic for loading processed data, generatin
 | `OLLAMA_EMBED_TIMEOUT_SECONDS` | `float` | `120.0` | HTTP timeout for embedding requests. |
 | `ADAPTIVE_CHUNK_THRESHOLD` | `int` | `600` | Token count below which a document is embedded as a single chunk. |
 | `EMBEDDING_CONCURRENCY` | `int` | `4` | Maximum number of projects embedded concurrently. Controls the `asyncio.Semaphore` in `_embed_and_insert_rows`. |
-| `PAYLOAD_EXCLUDE_FIELDS` | `set[str]` | `{"description"}` | Metadata keys excluded from Qdrant payloads to reduce storage. |
+| `PAYLOAD_EXCLUDE_FIELDS` | `set[str]` | `{"description", "legal_basis"}` | Metadata keys excluded from Qdrant payloads to reduce storage. |
+| `PAYLOAD_DISPLAY_FIELDS` | `tuple[str, ...]` | see `utils/config.py` | The 18 payload keys the search API returns; the input to `compute_payload_hash`. |
+| `PAYLOAD_LIST_FIELDS` | `frozenset[str]` | see `utils/config.py` | Which of those normalise an absent value to `[]` rather than `""`. |
 
 ---
 
 ## Top-Level Functions
+
+### `compute_content_hash(metadata: dict, description: str) -> str`
+
+Fingerprint the text that actually gets embedded: the contextual header plus the chunked body. Moves when the source text changes **and** when we change what the header is made of — a new entry in `CONTEXT_HEADER_FIELDS`, a vocabulary change, a parser mapping. That last part is what a marker taken from upstream (such as a `last_updated` column) cannot see.
+
+Deliberately does **not** cover the embedding recipe (model name, chunk size, overlap, `ADAPTIVE_CHUNK_THRESHOLD`). Changing one of those invalidates every vector in the collection and warrants a deliberate full rebuild, not an implicit one.
+
+**Returns:** `str` — hex SHA-256 digest.
+
+---
+
+### `compute_payload_hash(metadata: dict) -> str`
+
+Fingerprint the fields the search API returns, per `PAYLOAD_DISPLAY_FIELDS` — not the whole payload. Keys such as `funding_body`, `license_info` and `more_info` are never returned, so hashing them would trigger refreshes nobody can observe.
+
+Absent keys normalise exactly as `_aggregate_results` normalises them: missing scalar to `""`, missing list to `[]`. This is what makes the two collections comparable — EU carries no `status_note`, `deadlines` or `keywords_extracted` and only one `*_keys` field, while German carries no `date_1`/`date_2`. Without it, adding a column to one pipeline would silently invalidate the other's hashes.
+
+**Returns:** `str` — hex SHA-256 digest.
+
+---
+
+### `build_project_payload(metadata: dict, project_id: str, description: str) -> dict`
+
+The project-level Qdrant payload: the row minus `PAYLOAD_EXCLUDE_FIELDS`, plus `project_uuid` and both hashes. Shared by the insert path and the payload-refresh path so the two cannot write different payloads for the same row.
+
+`chunk_index` is deliberately absent — it is the one payload key that differs between a project's chunks, so the caller adds it. Leaving it out is what lets a payload refresh use `set_payload`, which merges and therefore preserves each chunk's own index.
+
+**Returns:** `dict` — payload without `chunk_index`.
+
+---
+
+### `_canonical_json(value: Any) -> str`
+
+Serialise a value so equal content always produces equal bytes. Same convention as `TaxonomyContractBuilder.build_taxonomy_artifact`: `ensure_ascii=False, sort_keys=True, separators=(",", ":")`. `default=str` covers the EU rows, whose `date_1`/`date_2` are `datetime` objects rather than strings.
+
+Both hashes are computed **from the parquet row**, never read back from Qdrant, so the same code serialises them every run.
+
+---
+
+### `build_context_header(metadata: dict, collection_type: str | None = None) -> str`
+
+Build the contextual header prepended to every chunk of a project before it is embedded.
+
+This is what makes fields other than `description` part of the embedding. `description` is the chunked body; everything else contributes through this header, declared once in `CONTEXT_HEADER_FIELDS`:
+
+| Metadata key | Label |
+|---|---|
+| `title` | Title |
+| `funding_type` | Funding type |
+| `funding_area` | Funding area |
+| `eligible_applicants` | Eligible applicants |
+| `keywords_extracted` | Keywords |
+| `project_short_description` | Summary |
+
+The header is repeated on each chunk so a chunk taken from the middle of a long programme still carries what it is about. Keep it short for that reason: at roughly 115 tokens it already costs a fifth of the 512-token window, and every field added is paid for on every chunk of every project.
+
+Lists are joined with `, `. Values equal to `PLACEHOLDER_VALUE` (`"N/A"`) are dropped, including single elements inside a list — `DataCleaner` writes that literal for every field the source does not state, and embedding it would put the same meaningless token into thousands of documents. A field that renders to nothing contributes no line; a project that states none of them gets an empty header.
+
+`collection_type` selects the per-collection list caps in `HEADER_LIST_CAPS`. Only one entry exists: the EU collection caps `funding_area` at 20 elements. EU calls are tagged from a far broader vocabulary than German programmes — 6 areas at the median and 19 at p90, but the worst carries 213, a 1,591-token header on top of each 512-token window, so roughly 78% of that chunk's tokens were a taxonomy dump. The cap sits at p90, leaving ~90% of calls untouched and cutting the worst line from 1,546 to 211 tokens. It is applied after the placeholder filter, so a dropped `"N/A"` never consumes a slot. German is uncapped: its taxonomy is curated and short by construction.
+
+**Capped rather than dropped — a design choice, not a measured retrieval win.** Dropping `funding_area` from the EU header entirely was tried first and measured against the collection's canary noise floor: "hydrogen electrolysis for industrial decarbonisation" scored 0.4907 dropped and 0.4881 capped, against a floor of 0.5151/0.5170. That is no material difference, so do not cite a retrieval measurement in favour of the cap. The cap is preferred because at the median of 6 areas the field is plausibly real topical signal, and capping bounds the token cost without discarding the median case.
+
+Both of those EU numbers sit below the floor, which is a property of the corpus rather than of the header: the EU collection holds only the ~212 currently OPEN/FORTHCOMING calls, none of them specifically about hydrogen electrolysis. A query the corpus does cover — "circular economy in cities" — reaches 0.6916 and clears the floor. `relative_score` cannot show this either way, since the top hit always reads 1.0.
+
+The cap governs the embedded text only: `funding_area` is untouched in the payload, still returned by the API, still filterable through `funding_area_keys`.
+
+`None` caps nothing, which is the German field set — so existing no-argument callers are unaffected.
+
+**Parameters:**
+
+- `metadata` (`dict`): The project's row, as written to the Qdrant payload.
+
+**Returns:** `str` — header text ending in a blank line, or `""`.
+
+---
 
 ### `load_funding_data(file_path: str, retries: int = 10, delay: int = 1) -> pl.DataFrame`
 
@@ -117,7 +194,7 @@ Request a dense embedding vector for a single text. Thin wrapper around `fetch_e
 
 Orchestrates incremental Qdrant synchronisation for processed funding data: reads new Parquet rows, generates embeddings, and upserts into the collection.
 
-### `Pipeline(qdrant: QdrantManager, embed_service: EmbeddingService, file_path: str)`
+### `Pipeline(qdrant: QdrantManager, embed_service: EmbeddingService, file_path: str, http_client: httpx.AsyncClient | None = None, collection_type: str | None = None)`
 
 Store references to the Qdrant manager, embedding service, and data file path.
 
@@ -126,20 +203,67 @@ Store references to the Qdrant manager, embedding service, and data file path.
 - `qdrant` (`QdrantManager`): Qdrant collection manager for insert/delete/scroll operations.
 - `embed_service` (`EmbeddingService`): Service that chunks text and fetches embeddings.
 - `file_path` (`str`): Path to the UUID Parquet file produced by `CommonDataPipeline`.
+- `http_client` (`httpx.AsyncClient | None`): Shared client reused for embedding requests.
+- `collection_type` (`str | None`): `"german"` or `"eu"`. Keys the first-seen record used by saved-search alerts; `None` disables first-seen stamping.
 
 ---
 
 ### `manage_embeddings() -> None`
 
-Run the full incremental embedding pipeline.
+Run the full incremental embedding pipeline. Every project falls into one of four buckets:
 
-1. Load and normalise the Parquet file.
-2. Fetch existing project IDs from Qdrant.
-3. Delete stale projects no longer in the active data.
-4. Identify rows not yet indexed.
-5. Embed and upsert new rows.
+| Bucket | Condition | Action |
+|---|---|---|
+| delete | indexed, no longer active | `delete_projects` |
+| insert | active, not indexed | embed + insert |
+| re-embed | indexed, `content_hash` differs or absent | `delete_projects`, **then** embed + insert |
+| payload refresh | indexed, same `content_hash`, `payload_hash` differs | `set_project_payload` — no embedding call |
+
+A project whose stored hashes are missing lands in the re-embed bucket, which is what makes the first run after this feature shipped a full re-index of both collections.
+
+!!! warning "Re-embedding deletes first"
+    Chunk point IDs are `uuid5(project_uuid, "chunk_{i}")`, so a bare re-upsert of a project that now produces *fewer* chunks would leave the surplus behind. Those orphans still carry the `project_uuid`, so they would be returned by search and folded into the project's aggregated score. Bucket 3 therefore issues one batched `delete_projects` before inserting.
+
+Before the buckets are acted on, `_record_first_seen` stamps every active project that has no first-seen row (see below).
 
 **Returns:** `None`
+
+---
+
+### `_record_first_seen(df: pl.DataFrame, indexed_ids: set[str]) -> list[str]`
+
+Stamp every active programme that has no row in `programme_first_seen` yet, so saved-search alerts can tell a genuinely new programme from one that merely moved into a search's top results.
+
+- Not yet in Qdrant → a genuine new arrival, stamped with the current time.
+- Already in Qdrant but unstamped → predates tracking, stamped with the epoch (`1970-01-01`) so it can never count as new. This is what stops the first run after rollout replaying the whole index as alerts.
+- Existing rows are never overwritten (`ON CONFLICT DO NOTHING`), so a programme that is deleted and later re-inserted keeps its original time.
+
+- **Re-key guard:** if the collection already has rows and more than `max(FIRST_SEEN_BURST_MIN, FIRST_SEEN_BURST_RATIO * active)` programmes would be stamped as new, they are stamped with the epoch instead and an error is logged. Such a burst is upstream ids changing, not new programmes.
+
+Database errors are logged and swallowed, so a Postgres outage never blocks embedding. The failure mode is one-sided: a programme that fails to be stamped can miss an alert but never trigger a false one. Does nothing when `collection_type` is `None`.
+
+**Returns:** the ids stamped as genuinely new in this run.
+
+---
+
+### `_mark_duplicates(new_ids: list[str]) -> None`
+
+Called after embedding for the programmes stamped new in this run. Fetches each one's chunk-0 vector and its nearest programme outside this run's new ones; at cosine >= `DUPLICATE_COSINE` (default 0.97) it records `programme_first_seen.duplicate_of`, so the programme does not alert as new. Failures are logged and skipped.
+
+The Qdrant lookups are per programme, but the marks are collected and written by a single `first_seen.mark_duplicates` call after the loop — one connection per duplicate meant hundreds of them on the first run after a re-index.
+
+---
+
+### `_plan_index_updates(df: pl.DataFrame, indexed: dict[str, dict]) -> tuple[pl.DataFrame, list[str], list[tuple[str, dict]]]`
+
+Sort the active rows into the embed, re-embed and payload-refresh buckets. Pure and synchronous, so classification is testable without Qdrant or Ollama.
+
+**Parameters:**
+
+- `df` (`pl.DataFrame`): Full funding DataFrame, including deleted rows.
+- `indexed` (`dict[str, dict]`): Per-project stored hashes from `_fetch_indexed_state`, with deleted projects already removed.
+
+**Returns:** `(rows_to_embed, stale_ids, payload_updates)` — the rows needing an embedding pass, the subset of those already indexed (which must be deleted first), and `(project_uuid, payload)` pairs that can be refreshed in place.
 
 ---
 
@@ -163,19 +287,6 @@ Computes the set difference between `existing_ids` and the UUIDs of active (non-
 - `existing_ids` (`set[str]`): Project UUIDs currently indexed in Qdrant.
 
 **Returns:** `list[str]` — UUIDs deleted from Qdrant (empty if nothing to delete).
-
----
-
-### `_get_new_active_rows(df: pl.DataFrame, existing_ids: set[str]) -> pl.DataFrame`
-
-Filter the DataFrame to active rows whose UUIDs are not yet in Qdrant.
-
-**Parameters:**
-
-- `df` (`pl.DataFrame`): Full funding DataFrame (includes deleted rows).
-- `existing_ids` (`set[str]`): UUIDs already present in the Qdrant collection.
-
-**Returns:** `pl.DataFrame` — subset of active, not-yet-indexed rows.
 
 ---
 
@@ -210,12 +321,12 @@ Prepends a contextual header (`Title: ...\nFunding area: ...\n\n`) to each chunk
 
 ---
 
-### `_fetch_existing_project_ids() -> list[str]`
+### `_fetch_indexed_state() -> dict[str, dict]`
 
-Scroll the Qdrant collection and return unique project UUIDs.
+Scroll the Qdrant collection and return each indexed project's stored change markers.
 
-Reads the `project_uuid` payload field from each point (256 points per page). Uses the raw point ID as a fallback for legacy points that lack the field. Propagates Qdrant scroll errors to the caller so the embedding run aborts rather than silently treating the collection as empty.
+Reads `project_uuid`, `content_hash` and `payload_hash` from each point (256 points per page, selective payload projection). Uses the raw point ID as a fallback for legacy points lacking `project_uuid`. Every chunk of a project carries the same hashes, so the first chunk seen wins. A project indexed before this feature existed yields `None` for both hashes, which `_plan_index_updates` treats as changed. Propagates Qdrant scroll errors so the embedding run aborts rather than silently treating the collection as empty.
 
-**Returns:** `list[str]` — deduplicated project UUIDs currently indexed.
+**Returns:** `dict[str, dict]` — `{project_uuid: {"content_hash": …, "payload_hash": …}}`.
 
 **Raises:** `Exception` — any Qdrant scroll error propagates to the caller.

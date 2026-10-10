@@ -3,8 +3,10 @@ import logging
 import os
 import re
 import time
+import uuid
 from collections import Counter
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from types import SimpleNamespace
 from typing import Any, Dict, List
@@ -20,36 +22,49 @@ from qdrant_client.models import (
     MatchAny,
     Modifier,
     PointStruct,
+    SearchParams,
     SparseVector,
     SparseVectorParams,
     VectorParams,
 )
 
+from .config import PAYLOAD_INDEX_FIELDS, VECTOR_DIMENSION
+
 logger = logging.getLogger(__name__)
 
 VECTOR_DB_HOST = os.getenv('VECTOR_DB_HOST', 'qdrant')
 QDRANT_PORT = int(os.environ.get('QDRANT_PORT', '6333'))
+QDRANT_API_KEY = os.getenv('QDRANT_API_KEY') or None
 DENSE_VECTOR_NAME = "dense"
 SPARSE_VECTOR_NAME = "sparse"
 PREFETCH_LIMIT_MULTIPLIER = 5
 
-STOPWORDS = frozenset(get_stop_words("de") + get_stop_words("en"))
+GERMAN = "german"
+ENGLISH = "english"
 
-_german_stemmer = snowballstemmer.stemmer("german")
+# Sparse-vector analysis is per collection language: `fundings_german` holds German
+# text, `fundings_eu` English. A German stemmer applied to English leaves most of its
+# inflection un-conflated (funding/funded/funds stay three separate stems), and the
+# fugen compound splitter below produces only junk on English words.
+#
+# German deliberately keeps the de+en stopword union it has always had, so that path
+# stays byte-identical and needs no re-index. English drops the German half, which was
+# stripping meaningful words from EU calls — `war` above all.
+_STOPWORDS: dict[str, frozenset[str]] = {
+    GERMAN: frozenset(get_stop_words("de") + get_stop_words("en")),
+    ENGLISH: frozenset(get_stop_words("en")),
+}
+
+_STEMMERS = {
+    GERMAN: snowballstemmer.stemmer("german"),
+    ENGLISH: snowballstemmer.stemmer("english"),
+}
 
 BM25_K1 = float(os.getenv("BM25_K1", "1.2"))
 
 _FUGEN_ELEMENTS = ("s", "es", "n", "en", "er", "e", "ns", "ens")
 _MIN_COMPOUND_LENGTH = 10
 _MIN_PART_LENGTH = 4
-
-PAYLOAD_INDEX_FIELDS = (
-    "project_uuid",
-    "funding_type_keys",
-    "funding_area_keys",
-    "funding_location_keys",
-    "eligible_applicants_keys",
-)
 
 
 def _bm25_saturate(tf: float, k1: float = BM25_K1) -> float:
@@ -110,21 +125,28 @@ class QdrantManager:
 
     On initialisation the collection is created or migrated to the named-vector
     schema required for hybrid search. Dense vectors use cosine distance (1024 dims);
-    sparse vectors use IDF-weighted BM25-style indices with German stemming and
-    compound splitting. Hybrid fusion uses score-aware Convex Combination instead
-    of rank-based RRF.
+    sparse vectors use IDF-weighted BM25-style indices stemmed in the collection's
+    own ``language``, with compound splitting for German only. Hybrid fusion uses
+    score-aware Convex Combination instead of rank-based RRF.
 
     Args:
         host (str, default=VECTOR_DB_HOST): Qdrant server hostname.
         port (int, default=QDRANT_PORT): Qdrant gRPC/HTTP port (typically 6333).
         collection_name (str, default="fundings"): Name of the Qdrant collection.
+        language (str, default=GERMAN): Language of the indexed text, selecting the
+            stopword list and stemmer used for sparse vectors.
     """
+
+    #: Default language, as a class attribute so that instances built with
+    #: ``__new__`` (which several tests do) still resolve ``self.language``.
+    language: str = GERMAN
 
     def __init__(
             self,
             host: str = VECTOR_DB_HOST,
             port: int = QDRANT_PORT,
-            collection_name: str = "fundings"
+            collection_name: str = "fundings",
+            language: str = GERMAN,
     ):
         """Connect to Qdrant and ensure the named collection is hybrid-search ready.
 
@@ -135,10 +157,22 @@ class QdrantManager:
                 ``QDRANT_PORT`` environment variable.
             collection_name (str, optional): Name of the collection to manage.
                 Defaults to ``"fundings"``.
+            language (str, optional): Language of the text in this collection —
+                ``"german"`` or ``"english"``. Selects the stopword list and
+                stemmer for sparse vectors. Defaults to ``"german"``.
+
+        Raises:
+            ValueError: If ``language`` has no configured stemmer.
         """
+        if language not in _STEMMERS:
+            raise ValueError(
+                f"Unsupported language {language!r}; "
+                f"expected one of {sorted(_STEMMERS)}"
+            )
         self.host = host
         self.port = port
         self.collection_name = collection_name
+        self.language = language
         self.client = self._init_qdrant()
 
     @staticmethod
@@ -181,7 +215,7 @@ class QdrantManager:
         return {
             "vectors_config": {
                 DENSE_VECTOR_NAME: VectorParams(
-                    size=1024,
+                    size=VECTOR_DIMENSION,
                     distance=Distance.COSINE,
                 )
             },
@@ -216,14 +250,22 @@ class QdrantManager:
         """
         for attempt in range(max_retries):
             try:
-                client = QdrantClient(host=self.host, port=self.port)
+                # `https` must be explicit: qdrant-client defaults it to
+                # `api_key is not None` when omitted, so setting QDRANT_API_KEY
+                # silently makes it open a TLS handshake against Qdrant's
+                # plaintext REST port (TLS is disabled on the internal
+                # backend network) — Qdrant then can't parse the ClientHello
+                # as HTTP and every connection attempt fails.
+                client = QdrantClient(
+                    host=self.host, port=self.port, api_key=QDRANT_API_KEY, https=False
+                )
                 client.get_collections()
                 logger.info("Connected to Qdrant")
                 break
             except Exception as e:
                 logger.warning(
-                    f"Qdrant not ready,"
-                    f" retrying in {wait}s... ({attempt+1}/{max_retries})"
+                    "Qdrant not ready, retrying in %ss... (%d/%d)",
+                    wait, attempt + 1, max_retries,
                 )
                 time.sleep(wait)
         else:
@@ -293,33 +335,51 @@ class QdrantManager:
                     field_name=field,
                     field_schema="keyword",
                 )
-            except Exception:
-                logger.debug("Payload index for '%s' already exists or failed", field)
+            except Exception as exc:
+                exc_str = str(exc).lower()
+                if "already exists" in exc_str or "already created" in exc_str:
+                    logger.debug("Payload index for '%s' already exists", field)
+                else:
+                    logger.warning(
+                        "Unexpected error creating payload index for '%s': %s",
+                        field, exc,
+                    )
 
     @staticmethod
-    def _tokenize(text: str) -> list[str]:
+    def _tokenize(text: str, language: str = GERMAN) -> list[str]:
         """Tokenize, stem, and expand text for sparse vector construction.
 
         Pipeline: lowercase → regex word extraction → stopword removal →
-        German Snowball stemming → compound splitting (with stemming of parts).
-        Compound parts are appended alongside the original stem so that both
-        the full compound and its constituents contribute to the sparse vector.
+        Snowball stemming in ``language`` → compound splitting (with stemming of
+        parts). Compound parts are appended alongside the original stem so that
+        both the full compound and its constituents contribute to the sparse
+        vector.
+
+        Compound splitting runs for German only: the fugen elements it looks for
+        are German, and English compounds are space-separated, so on English text
+        it yields nothing but noise (``organisation`` → ``organi`` + ``ation``).
 
         Args:
             text (str): Input text (typically a chunk with contextual header).
+            language (str, default=GERMAN): Language whose stopword list and
+                stemmer to use.
 
         Returns:
             list[str]: Stemmed and expanded tokens (may contain duplicates for
                 term-frequency counting).
         """
-        raw_tokens = [t for t in re.findall(r"\b\w+\b", text.lower()) if t not in STOPWORDS]
-        stemmed = _german_stemmer.stemWords(raw_tokens)
+        stopwords = _STOPWORDS[language]
+        stemmer = _STEMMERS[language]
+        raw_tokens = [t for t in re.findall(r"\b\w+\b", text.lower()) if t not in stopwords]
+        stemmed = stemmer.stemWords(raw_tokens)
+        if language != GERMAN:
+            return stemmed
         expanded = []
         for token, stem in zip(raw_tokens, stemmed):
             expanded.append(stem)
             parts = _split_compound(token)
             if parts:
-                expanded.extend(_german_stemmer.stemWords(parts))
+                expanded.extend(stemmer.stemWords(parts))
         return expanded
 
     @staticmethod
@@ -362,17 +422,21 @@ class QdrantManager:
         return SparseVector(indices=indices, values=values)
 
     @classmethod
-    def _build_sparse_vector(cls, text: str) -> SparseVector:
+    def _build_sparse_vector(cls, text: str, language: str = GERMAN) -> SparseVector:
         """Build a BM25-saturated sparse vector from text.
 
         Args:
             text (str): Input text to vectorize.
+            language (str, default=GERMAN): Language whose stopword list and
+                stemmer to use.
 
         Returns:
             SparseVector: Sparse vector with unique sorted indices and BM25-saturated
                 values, or an empty vector when no tokens survive filtering.
         """
-        return cls._build_sparse_vector_from_tokens(Counter(cls._tokenize(text)))
+        return cls._build_sparse_vector_from_tokens(
+            Counter(cls._tokenize(text, language))
+        )
 
     def insert_projects(
             self,
@@ -405,7 +469,7 @@ class QdrantManager:
             )
         ]
         self.client.upsert(collection_name=self.collection_name, points=points)
-        logger.info(f"Inserted {len(points)} points into {self.collection_name}")
+        logger.info("Inserted %d points into %s", len(points), self.collection_name)
 
     def delete_projects(self, project_uuids: List[str]) -> None:
         """Delete all Qdrant points belonging to the given project UUIDs.
@@ -435,8 +499,133 @@ class QdrantManager:
         )
 
         logger.info(
-            f"Deleted points for {len(project_uuids)} projects from {self.collection_name}"
+            "Deleted points for %d projects from %s",
+            len(project_uuids), self.collection_name,
         )
+
+    def set_project_payload(
+            self,
+            project_uuid: str,
+            payload: Dict[str, Any],
+    ) -> None:
+        """Update the payload of every chunk of one project, leaving its vectors alone.
+
+        For a project whose displayed fields changed but whose embedded text did not:
+        re-embedding it would produce identical vectors at the cost of an Ollama round
+        trip per chunk.
+
+        ``set_payload`` *merges* keys rather than replacing the payload, which is what
+        preserves each chunk's own ``chunk_index``. `build_project_payload` therefore
+        writes every displayed field explicitly — empty ones included — so a field
+        withdrawn upstream is overwritten with its empty value rather than keeping the
+        value captured when the project was last embedded. Keys outside
+        ``PAYLOAD_DISPLAY_FIELDS`` are not returned by the API, so a stale one there is
+        unobservable; it clears on the next re-embed.
+
+        Args:
+            project_uuid (str): Project whose chunks should be updated.
+            payload (Dict[str, Any]): Project-level payload, without ``chunk_index``.
+        """
+        self.client.set_payload(
+            collection_name=self.collection_name,
+            payload=payload,
+            points=Filter(
+                must=[
+                    FieldCondition(
+                        key="project_uuid",
+                        match=MatchAny(any=[project_uuid]),
+                    )
+                ]
+            ),
+        )
+
+    @staticmethod
+    def _project_filter(
+        include: List[str] | None = None,
+        exclude: List[str] | None = None,
+    ) -> Filter | None:
+        """Build a ``project_uuid`` filter restricting to and/or excluding projects."""
+        must = (
+            [FieldCondition(key="project_uuid", match=MatchAny(any=list(include)))]
+            if include is not None else None
+        )
+        must_not = (
+            [FieldCondition(key="project_uuid", match=MatchAny(any=list(exclude)))]
+            if exclude else None
+        )
+        if must is None and must_not is None:
+            return None
+        return Filter(must=must, must_not=must_not)
+
+    def best_chunk_per_project(
+        self,
+        query_vector: List[float],
+        *,
+        project_uuids: List[str] | None = None,
+        exclude: List[str] | None = None,
+        limit: int | None = None,
+        with_payload: Any = True,
+    ) -> List[Any]:
+        """Return each project's best-scoring dense chunk, best project first.
+
+        Uses Qdrant's grouping on ``project_uuid`` with one hit per group, so every
+        project takes exactly one slot and its score is its best chunk's cosine. No
+        chunk budget has to be guessed: a project with many strong chunks cannot
+        crowd another out.
+
+        Args:
+            query_vector (List[float]): Dense embedding of the query.
+            project_uuids (List[str], optional): Score only these projects. The search
+                is then exact (non-HNSW), so every listed project gets its true cosine.
+            exclude (List[str], optional): Projects to leave out.
+            limit (int, optional): Number of projects to return. Defaults to
+                ``len(project_uuids)``; required when ``project_uuids`` is not given.
+            with_payload: Passed to Qdrant; ``True`` returns the full payload.
+
+        Returns:
+            List[ScoredPoint]: One point per project, sorted by score descending. A
+            listed project with no chunk in the collection is simply absent.
+        """
+        if project_uuids is not None:
+            if not project_uuids:
+                return []
+            limit = limit or len(project_uuids)
+        if not limit:
+            raise ValueError("limit is required when project_uuids is not given")
+
+        response = self.client.query_points_groups(
+            collection_name=self.collection_name,
+            query=query_vector,
+            using=DENSE_VECTOR_NAME,
+            group_by="project_uuid",
+            group_size=1,
+            limit=limit,
+            query_filter=self._project_filter(project_uuids, exclude),
+            search_params=SearchParams(exact=True) if project_uuids is not None else None,
+            with_payload=with_payload,
+        )
+        hits = [group.hits[0] for group in response.groups if group.hits]
+        return sorted(hits, key=lambda hit: hit.score, reverse=True)
+
+    def project_vector(self, project_uuid: str) -> List[float] | None:
+        """Return the dense vector of a project's first chunk, or ``None``.
+
+        Chunk point ids are ``uuid5(project_uuid, "chunk_0")`` (see
+        ``Pipeline._process_single_project``), so the point is fetched by id.
+        """
+        point_id = str(uuid.uuid5(uuid.UUID(project_uuid), "chunk_0"))
+        points = self.client.retrieve(
+            collection_name=self.collection_name,
+            ids=[point_id],
+            with_payload=False,
+            with_vectors=[DENSE_VECTOR_NAME],
+        )
+        if not points:
+            return None
+        vector = points[0].vector
+        if isinstance(vector, Mapping):
+            vector = vector.get(DENSE_VECTOR_NAME)
+        return list(vector) if vector is not None else None
 
     def search(
         self,
@@ -483,7 +672,7 @@ class QdrantManager:
             )
             return response.points
 
-        sparse_query = self._build_sparse_vector(query_text)
+        sparse_query = self._build_sparse_vector(query_text, self.language)
 
         if semantic_weight <= 0.0:
             response = self.client.query_points(
@@ -498,18 +687,23 @@ class QdrantManager:
         dense_limit = max(limit, round(total_prefetch * semantic_weight))
         sparse_limit = max(limit, round(total_prefetch * (1.0 - semantic_weight)))
 
-        dense_response = self.client.query_points(
-            collection_name=self.collection_name,
-            query=query_vector,
-            using=DENSE_VECTOR_NAME,
-            limit=dense_limit,
-        )
-        sparse_response = self.client.query_points(
-            collection_name=self.collection_name,
-            query=sparse_query,
-            using=SPARSE_VECTOR_NAME,
-            limit=sparse_limit,
-        )
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            dense_future = executor.submit(
+                self.client.query_points,
+                collection_name=self.collection_name,
+                query=query_vector,
+                using=DENSE_VECTOR_NAME,
+                limit=dense_limit,
+            )
+            sparse_future = executor.submit(
+                self.client.query_points,
+                collection_name=self.collection_name,
+                query=sparse_query,
+                using=SPARSE_VECTOR_NAME,
+                limit=sparse_limit,
+            )
+            dense_response = dense_future.result()
+            sparse_response = sparse_future.result()
 
         return self._fuse_convex_combination(
             dense_response.points,
@@ -576,9 +770,11 @@ class QdrantManager:
         fused.sort(key=lambda p: p.score, reverse=True)
         return fused[:limit]
 
-    @staticmethod
-    def _build_point_vector(embedding: list[float], chunk_text: str) -> dict[str, Any]:
+    def _build_point_vector(self, embedding: list[float], chunk_text: str) -> dict[str, Any]:
         """Combine a dense embedding and a chunk-text-derived sparse vector.
+
+        An instance method rather than a static one so the sparse vector is built
+        in this collection's own ``language``.
 
         Args:
             embedding (list[float]): Pre-computed dense embedding vector.
@@ -591,5 +787,5 @@ class QdrantManager:
         """
         return {
             DENSE_VECTOR_NAME: embedding,
-            SPARSE_VECTOR_NAME: QdrantManager._build_sparse_vector(chunk_text),
+            SPARSE_VECTOR_NAME: self._build_sparse_vector(chunk_text, self.language),
         }
