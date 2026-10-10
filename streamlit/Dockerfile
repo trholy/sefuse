@@ -10,7 +10,7 @@ COPY streamlit/src/Home.py streamlit/favicon.jpg /app/
 COPY streamlit/migrations /app/migrations/
 COPY streamlit/src/auth/ /app/auth/
 COPY streamlit/src/utils/ /app/utils/
-COPY streamlit/src/pages/ /app/pages/
+COPY streamlit/src/app_pages/ /app/app_pages/
 COPY streamlit/src/ui/ /app/ui/
 COPY shared/ /app/shared/
 COPY streamlit/.streamlit /app/.streamlit/

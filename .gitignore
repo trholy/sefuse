@@ -12,9 +12,25 @@
 /.idea
 __pycache__/
 .DS_Store
+.claude
 
+CLAUDE.md
 *.xml
 *.pyc
 *.log
 .coverage
 .pytest_cache/
+
+tests/*
+
+# Scratch / development experiments — not part of the project
+struct_polars.py
+test_struct_polars.py
+
+# Upstream scraper clones kept beside the repo for reference, not part of SeFuSe
+fdb_scraper/
+cdl_funding_scraper/
+
+# Local-only notes and Compose overrides (e.g. the GPU block)
+notes/
+docker-compose.override.yml

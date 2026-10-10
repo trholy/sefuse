@@ -71,7 +71,7 @@ Local embedding model server (default model: `bge-m3`).
 | Networks | `backend`, `egress` |
 | Healthcheck | `ollama list` — 10 s interval, 5 s timeout, 10 retries |
 | Restart | on-failure, max 5 attempts |
-| Resource limits | 2 GB RAM, 2.0 CPU |
+| Resource limits | 8 GB RAM, 2.0 CPU |
 | Security | `no-new-privileges:true` |
 
 Key environment variables:
@@ -81,11 +81,16 @@ Key environment variables:
 | `MODEL` | `bge-m3` | Embedding model to pull and serve. Must match FastAPI and Streamlit. |
 | `OLLAMA_READY_TIMEOUT` | `60` | Seconds `init_models.sh` waits for `ollama serve` to become ready before failing. |
 | `OLLAMA_KEEP_ALIVE` | `-1` | Keep model loaded indefinitely in memory. |
-| `NVIDIA_VISIBLE_DEVICES` | `all` | Uncomment GPU options in the compose file to use NVIDIA GPU acceleration. |
-| `NVIDIA_DRIVER_CAPABILITIES` | `compute,utility` | Required NVIDIA driver capabilities for GPU mode. |
-| `OLLAMA_NUM_CTX` | `2048` | Context window size. Relevant when using GPU mode. |
+| `NVIDIA_VISIBLE_DEVICES` | commented out | GPU acceleration; set together with the `gpus` block. |
+| `NVIDIA_DRIVER_CAPABILITIES` | commented out | Required NVIDIA driver capabilities for GPU mode. |
+| `OLLAMA_CONTEXT_LENGTH` | `8192` | Context window size, matching `bge-m3`'s trained context. Ollama ignores `OLLAMA_NUM_CTX`, the name this used to carry. |
+| `OLLAMA_NO_CLOUD` | `1` | Keeps Ollama local-only. |
 
-To enable GPU acceleration, uncomment the `gpus` block and the NVIDIA environment variables in `docker-compose.yml`.
+**GPU is opt-in.** The `gpus` block (pinning `device_ids: ["0"]`) and the two `NVIDIA_*`
+variables ship commented out, so the stack starts on any host and embeds on CPU. On a
+host with an NVIDIA GPU and the container toolkit, uncomment them — or set them in a
+`docker-compose.override.yml`, which Compose merges automatically and which is
+gitignored.
 
 ### `fastapi`
 
@@ -120,6 +125,8 @@ Key environment variables:
 | `MODEL` | `bge-m3` | Embedding model name — must match Ollama and Streamlit. |
 | `TOKENIZER` | `BAAI/bge-m3` | HuggingFace tokenizer identifier. |
 | `INTERNAL_API_TOKEN` | — | Shared secret required by `InternalTokenMiddleware`. |
+| `ALLOW_UNAUTHENTICATED_INTERNAL_API` | `false` | `true` lets FastAPI start with an empty `INTERNAL_API_TOKEN` (local development only; logs a warning). |
+| `ALERTS_ENABLED` | `true` | Master switch for saved-search alerts. `false` leaves `alert_check_job` and `alert_notification_cleanup_job` unscheduled and skips the Gotify startup validation entirely; the other five cron jobs are unaffected. Must match the Streamlit service. |
 | `OLLAMA_URL` | `http://ollama:11434` | Ollama base URL. |
 | `OLLAMA_EMBED_TIMEOUT_SECONDS` | `120` | Per-request HTTP timeout for embedding calls. |
 | `OLLAMA_MODEL_READY_TIMEOUT` | `600` | Max seconds to wait for Ollama model readiness on startup. |
@@ -140,7 +147,7 @@ Key environment variables:
 | `ADAPTIVE_CHUNK_THRESHOLD` | `600` | Token count below which documents are embedded as a single chunk. |
 | `TOPK_SCORES` | `3` | Top chunk scores averaged per project during result aggregation. |
 | `EMBEDDING_CONCURRENCY` | `4` | Maximum parallel embedding tasks per pipeline run. |
-| `EU_API_KEY` | — | EU Funding & Tenders Portal API key (`SEDIA` for the public key). |
+| `EU_API_KEY` | — | EU Funding & Tenders Portal API key (`SEDIA`). |
 | `EU_API_URL` | `https://api.tech.ec.europa.eu/search-api/prod/rest/search` | EU search API endpoint. |
 | `EU_PAGE_SIZE` | `50` | Records per EU API page. |
 | `EU_MAX_PAGES` | `100` | Maximum pages per EU pipeline run. |
@@ -185,8 +192,14 @@ Key environment variables:
 | `DB_PASSWORD` | `$POSTGRES_PASSWORD` | Database password. |
 | `DB_CONNECT_TIMEOUT_SECONDS` | `5` | Connection timeout for auth DB operations. |
 | `AUTH_ENABLED` | `true` | Set to `false` to disable login requirement. |
+| `ALERTS_ENABLED` | `true` | Master switch for saved-search alerts. `false` hides the Notification Settings page, the sidebar unread badge, and the alert sections of the Saved Searches page and the save-search dialog. Must match the FastAPI service. |
 | `ADMIN_USERNAME` | — | Username for the bootstrap admin account. |
 | `ADMIN_PASSWORD` | — | Password for the bootstrap admin account. |
 | `BCRYPT_ROUNDS` | `12` | bcrypt work factor for password hashing. |
 | `PASSWORD_MIN_LENGTH` | `8` | Minimum password length enforced on creation/update. |
 | `SESSION_TIMEOUT_MINUTES` | `30` | Idle session expiry. |
+| `SESSION_COOKIES_ENABLED` | `true` | Enable cross-tab session cookies. Set to `false` to disable cookie-based session persistence; each browser tab then requires a separate login. |
+| `SESSION_COOKIE_SECURE` | `false` | Adds the `Secure` attribute to the session cookie. Set to `true` when Streamlit is served behind TLS. |
+| `LOGIN_LOCKOUT_MAX_ATTEMPTS` | `5` | Consecutive failed logins after which an account is temporarily locked. |
+| `LOGIN_LOCKOUT_DURATION_MINUTES` | `15` | How long such a lock lasts. |
+| `STREAMLIT_BROWSER_GATHER_USAGE_STATS` | `false` | Disables Streamlit's built-in anonymous usage analytics (Segment). |

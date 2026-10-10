@@ -4,6 +4,9 @@ services:
     container_name: sefuse_qdrant
     expose:
       - "6333"
+    environment:
+      - QDRANT__TELEMETRY_DISABLED=true
+      - QDRANT__SERVICE__API_KEY=${QDRANT_API_KEY}
     volumes:
       - ./data/qdrant:/qdrant/storage
     networks:
@@ -57,8 +60,8 @@ services:
     volumes:
       - ./ollama/data:/home/ollama/.ollama
     # ------------------------------
-    # Uncomment NVIDIA_VISIBLE_DEVICES, NVIDIA_DRIVER_CAPABILITIES,
-    # OLLAMA_NUM_CTX & gpus to use GPU for embedding processing.
+    # Uncomment NVIDIA_VISIBLE_DEVICES, NVIDIA_DRIVER_CAPABILITIES & gpus
+    # to use an NVIDIA GPU for embedding processing.
     # ------------------------------
     environment:
       - MODEL=${MODEL:-bge-m3}
@@ -66,10 +69,14 @@ services:
       - OLLAMA_KEEP_ALIVE=-1
      # - NVIDIA_VISIBLE_DEVICES=all
      # - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-     # - OLLAMA_NUM_CTX=2048
-   # gpus:
-      # - driver: nvidia
-        # device_ids: ["0"]
+      # bge-m3 is trained to 8192 tokens; asking for more only logs
+      # "requested context size too large for model" and buys nothing, since the
+      # longest input we send is a context header plus one 512-token window.
+      - OLLAMA_CONTEXT_LENGTH=8192
+      - OLLAMA_NO_CLOUD=1
+    # gpus:
+       # - driver: nvidia
+         # device_ids: ["0"]
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 10s
@@ -86,7 +93,7 @@ services:
         max_attempts: 5
       resources:
         limits:
-          memory: 2G
+          memory: 8G
           cpus: "2.0"
 
   fastapi:
@@ -104,6 +111,8 @@ services:
         condition: service_started
       ollama:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -112,32 +121,58 @@ services:
     environment:
       - MODEL=${MODEL:-bge-m3}
       - TOKENIZER=${TOKENIZER:-BAAI/bge-m3}
-      - CRON_TRIGGER_GERMAN_DATA_PROCESSING=0
-      - CRON_TRIGGER_GERMAN_EMBEDDING=3
-      - CRON_TRIGGER_EU_DATA_PROCESSING=1
-      - CRON_TRIGGER_EU_EMBEDDING=4
+      - CRON_TRIGGER_GERMAN_DATA_PROCESSING=${CRON_TRIGGER_GERMAN_DATA_PROCESSING:-0}
+      - CRON_TRIGGER_GERMAN_EMBEDDING=${CRON_TRIGGER_GERMAN_EMBEDDING:-3}
+      - CRON_TRIGGER_EU_DATA_PROCESSING=${CRON_TRIGGER_EU_DATA_PROCESSING:-1}
+      - CRON_TRIGGER_EU_EMBEDDING=${CRON_TRIGGER_EU_EMBEDDING:-4}
       - GERMAN_COLLECTION_NAME=fundings_german
       - EU_COLLECTION_NAME=fundings_eu
       - GERMAN_EXTRACTED_FILE_PATH=data/german_parquet_data_uuid.parquet
       - GERMAN_TAXONOMY_FILE_PATH=data/taxonomy_german.json
       - EU_EXTRACTED_FILE_PATH=data/eu_parquet_data_uuid.parquet
-      - GERMAN_FUNDING_DATA_URL=https://foerderdatenbankdump.fra1.cdn.digitaloceanspaces.com/data/parquet_data.zip
+      - GERMAN_FUNDING_DATA_URL=https://fdb.cdl.correlaid.org/data/programme.csv
       - EU_API_URL=https://api.tech.ec.europa.eu/search-api/prod/rest/search
       - EU_API_KEY=${EU_API_KEY}
       - EU_PAGE_SIZE=50
-      - EU_MAX_PAGES=100
+      - EU_MAX_PAGES=${EU_MAX_PAGES:-100}
       - EU_REQUEST_TIMEOUT_SECONDS=30
       - EU_PAGE_DELAY_SECONDS=0.2
+      - DATA_REFRESH_MAX_DROP_RATIO=${DATA_REFRESH_MAX_DROP_RATIO:-0.2}
       - OLLAMA_URL=http://ollama:11434
-      - OLLAMA_EMBED_TIMEOUT_SECONDS=120
+      - OLLAMA_EMBED_TIMEOUT_SECONDS=${OLLAMA_EMBED_TIMEOUT_SECONDS:-120}
+      - OLLAMA_MODEL_READY_INTERVAL=${OLLAMA_MODEL_READY_INTERVAL:-10}
+      - OLLAMA_MODEL_READY_TIMEOUT=${OLLAMA_MODEL_READY_TIMEOUT:-600}
       - VECTOR_DB_HOST=qdrant
       - QDRANT_PORT=6333
       - RUN_STARTUP_PIPELINES_SYNC=false
       - INTERNAL_API_TOKEN=${INTERNAL_API_TOKEN}
+      - ALLOW_UNAUTHENTICATED_INTERNAL_API=${ALLOW_UNAUTHENTICATED_INTERNAL_API:-false}
       - BM25_K1=${BM25_K1:-1.2}
       - ADAPTIVE_CHUNK_THRESHOLD=${ADAPTIVE_CHUNK_THRESHOLD:-600}
       - TOPK_SCORES=${TOPK_SCORES:-3}
       - EMBEDDING_CONCURRENCY=${EMBEDDING_CONCURRENCY:-4}
+      - VECTOR_DIMENSION=${VECTOR_DIMENSION:-1024}
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=${POSTGRES_DB}
+      - DB_USER=${POSTGRES_USER}
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_CONNECT_TIMEOUT_SECONDS=${DB_CONNECT_TIMEOUT_SECONDS:-5}
+      - ALERTS_ENABLED=${ALERTS_ENABLED:-true}
+      - ALERT_CHECK_HOUR=${ALERT_CHECK_HOUR:-5}
+      - ALERT_LEVEL_RULES=${ALERT_LEVEL_RULES:-}
+      - ALERT_NOISE_MARGIN=${ALERT_NOISE_MARGIN:-0.04}
+      - FIRST_SEEN_BURST_MIN=${FIRST_SEEN_BURST_MIN:-25}
+      - FIRST_SEEN_BURST_RATIO=${FIRST_SEEN_BURST_RATIO:-0.1}
+      - DUPLICATE_COSINE=${DUPLICATE_COSINE:-0.97}
+      - ALERT_NOTIFICATION_RETENTION_DAYS=${ALERT_NOTIFICATION_RETENTION_DAYS:-30}
+      - GOTIFY_ENABLED=${GOTIFY_ENABLED:-false}
+      - GOTIFY_URL=${GOTIFY_URL:-}
+      - GOTIFY_SECRET_KEY=${GOTIFY_SECRET_KEY:-}
+      - GOTIFY_PRIORITY=${GOTIFY_PRIORITY:-5}
+      - GOTIFY_TIMEOUT_SECONDS=${GOTIFY_TIMEOUT_SECONDS:-10}
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
     networks:
       - backend
       - frontend
@@ -187,11 +222,23 @@ services:
       - DB_PASSWORD=${POSTGRES_PASSWORD}
       - DB_CONNECT_TIMEOUT_SECONDS=${DB_CONNECT_TIMEOUT_SECONDS:-5}
       - AUTH_ENABLED=${AUTH_ENABLED:-true}
+      - ALERTS_ENABLED=${ALERTS_ENABLED:-true}
+      - GOTIFY_ENABLED=${GOTIFY_ENABLED:-false}
+      - GOTIFY_URL=${GOTIFY_URL:-}
+      - GOTIFY_SECRET_KEY=${GOTIFY_SECRET_KEY:-}
+      - GOTIFY_PRIORITY=${GOTIFY_PRIORITY:-5}
+      - GOTIFY_TIMEOUT_SECONDS=${GOTIFY_TIMEOUT_SECONDS:-10}
       - ADMIN_USERNAME=${ADMIN_USERNAME}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
       - BCRYPT_ROUNDS=${BCRYPT_ROUNDS:-12}
       - PASSWORD_MIN_LENGTH=${PASSWORD_MIN_LENGTH:-8}
       - SESSION_TIMEOUT_MINUTES=${SESSION_TIMEOUT_MINUTES:-30}
+      - SESSION_COOKIES_ENABLED=${SESSION_COOKIES_ENABLED:-true}
+      - SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-false}
+      - LOGIN_LOCKOUT_MAX_ATTEMPTS=${LOGIN_LOCKOUT_MAX_ATTEMPTS:-5}
+      - LOGIN_LOCKOUT_DURATION_MINUTES=${LOGIN_LOCKOUT_DURATION_MINUTES:-15}
+      - STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
     networks:
       - frontend
       - backend
