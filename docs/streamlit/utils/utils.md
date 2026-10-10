@@ -57,7 +57,7 @@ Send a search request to the FastAPI backend and return matched projects.
 - `search_limit` (`int`): Maximum number of results to request.
 - `endpoint` (`str`): API path, e.g. `"/v1/search/german"`.
 - `semantic_weight` (`float`, default `0.7`): Hybrid search weight (0 = pure keyword, 1 = pure semantic).
-- `filters` (`dict[str, Any] | None`, default `None`): Optional taxonomy filters and `drop_na` flag forwarded to the backend.
+- `filters` (`dict[str, Any] | None`, default `None`): Optional taxonomy filters forwarded to the backend.
 - `timeout` (`int`, default `30`): HTTP request timeout in seconds.
 
 **Returns:** `list[dict]` — list of matching project dicts from the `matches` key of the JSON response.
@@ -70,7 +70,9 @@ Send a search request to the FastAPI backend and return matched projects.
 
 Render a German federal funding project as a Streamlit card.
 
-Displays: title (hyperlinked to `project_website`), short description, full description, on-website date (`date_1`), last-updated date (`date_2`), funding type, target area (funding location), funding area, eligible applicants, and matching score as a percentage.
+Displays the title hyperlinked to `project_website`, then every field in `GERMAN_RESULT_FIELDS`, then the matching score as a percentage.
+
+No line is ever omitted: fields the source does not state render as `N/A` — see `display_value` and `safe_join`.
 
 **Parameters:**
 
@@ -80,11 +82,48 @@ Displays: title (hyperlinked to `project_website`), short description, full desc
 
 ---
 
+### `GERMAN_RESULT_FIELDS`
+
+The German result card, in display order, as `(result key, label, is_list)` triples:
+
+| Field | Label | List |
+|---|---|---|
+| `project_short_description` | Short description | |
+| `project_full_description` | Full description | |
+| `funding_location` | Target area | ✓ |
+| `funding_type` | Type of funding | ✓ |
+| `eligible_applicants` | Eligible applicants | ✓ |
+| `funding_area` | Funding area | ✓ |
+| `status_note` | Status | |
+| `deadlines` | Deadlines | |
+| `keywords_extracted` | Keywords | ✓ |
+| `contact_info_institution` | Contact | |
+
+Every field is always rendered. A programme that does not state one shows `N/A` rather than dropping the line, so the card has the same shape for every result and a reader can tell "not stated" from "you scrolled past it".
+
+The German card shows no dates: the pipeline no longer carries the source's history columns.
+
+---
+
+### `display_value(value: Any) -> str`
+
+Render a scalar result field, falling back to `"N/A"`.
+
+Covers the three ways a field can be absent by the time it reaches the page: the data pipeline filled it with the `"N/A"` placeholder, the API defaulted it to an empty string because the collection has no such field, or the key is missing from the result dict entirely. List fields use `safe_join`, which has the same fallback.
+
+**Parameters:**
+
+- `value` (`Any`): Raw field value from a result dict.
+
+**Returns:** `str` — the stripped value, or `"N/A"`.
+
+---
+
 ### `_parse_datetime(value: Any) -> datetime | None`
 
 Parse a datetime-like value into a `datetime` object, returning `None` on failure.
 
-Handles ISO-8601 strings (normalises `Z` suffix to `+00:00`), existing `datetime` instances, and `None`.
+Handles ISO-8601 strings (normalises `Z` suffix to `+00:00`), existing `datetime` instances, and `None`. Used only by the EU renderer — the German card shows no dates.
 
 **Parameters:**
 
@@ -94,11 +133,33 @@ Handles ISO-8601 strings (normalises `Z` suffix to `+00:00`), existing `datetime
 
 ---
 
+### `DATE_DISPLAY_FORMAT`
+
+`"%d %b %Y, %H:%M"` — the one date format the UI uses. Day-month-year with an abbreviated month and a 24-hour clock reads unambiguously to both German and English users, which a purely numeric format does not.
+
+---
+
+### `format_timestamp(value: datetime) -> str`
+
+Format a known-present `datetime` per `DATE_DISPLAY_FORMAT`.
+
+For callers holding a real timestamp from the database with nothing to fall back to — the watchlist's "Added" caption, and the Saved Searches page's created/last-run captions. Use `_display_date` instead where the value may be absent or a string, since that one falls back to `"N/A"`.
+
+**Parameters:**
+
+- `value` (`datetime`): The timestamp to render.
+
+**Returns:** `str` — the formatted timestamp.
+
+---
+
 ### `render_eu_project_result(result: dict) -> None`
 
 Render an EU funding call as a Streamlit card.
 
-Displays: title (hyperlinked to `project_website`), full description, planned opening date (`date_1`, omitted when absent), deadline (`date_2`, omitted when absent), and matching score as a percentage.
+Displays: title (hyperlinked to `project_website`), a truncated headline, a collapsed "More details" expander holding the full topic description plus the planned opening date (`date_1`) and deadline (`date_2`), and the matching score as a percentage. Every line inside the expander is always rendered, falling back to `"N/A"`.
+
+The headline is `topic_destination` — the aims of the work programme destination the topic sits under. The EU portal states it on Horizon topics only (roughly one open call in eight), so the card falls back to `project_full_description` when it is absent rather than leaving most results blank, and truncates whichever it used at `EU_CARD_DESCRIPTION_CHARS` (400 characters). The expander always holds the untruncated topic description.
 
 **Parameters:**
 
@@ -108,7 +169,7 @@ Displays: title (hyperlinked to `project_website`), full description, planned op
 
 ---
 
-### `_friendly_search_error(error: Exception) -> str`
+### `friendly_search_error(error: Exception) -> str`
 
 Map a search exception to a user-friendly error message for display via `st.error(...)`.
 

@@ -4,9 +4,29 @@ Defines the abstract base class and concrete implementations for German and EU f
 
 ---
 
+## `_save_search_dialog(...)`
+
+The "Save this search" dialog. It stores the query, collection, filters, semantic
+weight and result limit, and optionally switches an alert on.
+
+- **Match level, not a number** — `ui.alerts.render_alert_level_slider`, one slider over `shared.alert_levels.LEVELS`
+  (Broad / Balanced / Strict, default Balanced) stores the level *name*. FastAPI
+  decides what it means relative to the saved query; no cosine reaches the UI. See
+  [Saved-Search Alerts](../../fastapi/alerts.md).
+- **Duplicate guard** — `SavedSearchRepository.find_duplicate` is called before
+  `create`: same user, collection, query text, filters and semantic weight means the
+  same search, whatever its title or limit. The dialog then points at the existing
+  entry instead of saving a second copy, which would push every alert twice. It is an
+  application-level check, not a database constraint, so two concurrent saves can
+  still both get through.
+- Switching an alert on (off → on) resets `alert_baseline_at` to `NOW()`, so only
+  programmes indexed from that moment can alert.
+
+---
+
 ## Class `BaseFundingSearchPage`
 
-Abstract base class for funding search pages. Subclasses define the page title, API endpoint, widget keys, sidebar controls, and result rendering. The shared `render()` method wires them together.
+Abstract base class for funding search pages. Subclasses define the API endpoint, widget keys, sidebar controls, and result rendering. The shared `render()` method wires them together.
 
 ### `BaseFundingSearchPage(model: str | None = None, fastapi_url: str | None = None)`
 
@@ -21,7 +41,6 @@ Abstract base class for funding search pages. Subclasses define the page title, 
 
 | Property | Type | Description |
 |---|---|---|
-| `page_title` | `str` | Human-readable title shown in the browser tab and page header. |
 | `search_endpoint` | `str` | FastAPI endpoint path, e.g. `"/v1/search/german"`. |
 | `search_button_key` | `str` | Unique Streamlit widget key for the search button. |
 | `query_key` | `str` | Unique Streamlit widget key for the query text area. |
@@ -66,9 +85,11 @@ Abstract. Render a single search result as a Streamlit card.
 
 ### `render() -> None`
 
-Render the full search page: page config, query text area, sidebar controls, search button, and result cards.
+Render the full search page: query text area, sidebar controls, search button, and result cards.
 
-On button click, calls `search_projects()` with all parameters (including `filters` from context). Renders success/warning/error feedback and iterates results through `render_result()`. Exceptions are caught and shown via `st.error(_friendly_search_error(...))`.
+Page config is not set here: under `st.navigation` only the entry point may call `st.set_page_config`, so the browser tab title comes from the `st.Page` title declared in [`build_navigation_pages()`](navigation.md).
+
+On button click, calls `search_projects()` with all parameters (including `filters` from context). Renders success/warning/error feedback and iterates results through `render_result()`. Exceptions are caught and shown via `st.error(friendly_search_error(...))`.
 
 **Returns:** `None`
 
@@ -76,7 +97,7 @@ On button click, calls `search_projects()` with all parameters (including `filte
 
 ## Class `GermanFundingSearchPage`
 
-Search page for the German federal funding database. Adds taxonomy-based sidebar multiselect filters fetched from `/v1/vocab/german` and a drop-N/A checkbox.
+Search page for the German federal funding database. Adds taxonomy-based sidebar multiselect filters fetched from `/v1/vocab/german`.
 
 **Inherits:** `BaseFundingSearchPage`
 
@@ -84,11 +105,18 @@ Search page for the German federal funding database. Adds taxonomy-based sidebar
 
 | Property | Value |
 |---|---|
-| `page_title` | `"Federal Funding Database"` |
 | `search_endpoint` | `"/v1/search/german"` |
 | `search_button_key` | `"search_federal"` |
 | `query_key` | `"federal_query"` |
 | `no_results_message` | `"No projects match your selected filters."` |
+
+### `source_attribution`
+
+Class attribute on `BaseFundingSearchPage`, default `None`. When set, `render()` writes it once as an `st.caption` below the results list.
+
+`GermanFundingSearchPage` sets it: the Förderdatenbank programme texts are licensed CC BY-ND 4.0 with the Bundesministerium für Wirtschaft und Energie as rights holder, and displaying them in search results is republication, which the licence requires attribution for. Each row additionally carries its own attribution string in the `license_info` payload field.
+
+---
 
 ### `FIELD_CONFIG`
 
@@ -105,11 +133,11 @@ Class-level list of `(field, label, widget_key)` triples for the four taxonomy f
 
 ### `render_sidebar() -> tuple[float, int, dict[str, Any]]`
 
-Render German-specific sidebar with taxonomy multiselects, drop-N/A checkbox, search-limit number input, and semantic-weight slider.
+Render German-specific sidebar with taxonomy multiselects, search-limit number input, and semantic-weight slider.
 
 Fetches the taxonomy artifact from `/v1/vocab/german` via `fetch_german_taxonomy()`. Falls back gracefully with a sidebar warning when the taxonomy is unavailable. Displays canonical labels while storing stable taxonomy keys internally.
 
-**Returns:** `tuple[float, int, dict[str, Any]]` — `(semantic_weight, search_limit, context)` where `context["filters"]` contains selected taxonomy keys and the `drop_na` flag.
+**Returns:** `tuple[float, int, dict[str, Any]]` — `(semantic_weight, search_limit, context)` where `context["filters"]` contains the selected taxonomy keys.
 
 ---
 
@@ -135,7 +163,6 @@ Search page for EU funding calls. Provides a minimal sidebar (search limit and s
 
 | Property | Value |
 |---|---|
-| `page_title` | `"EU Funding Programs"` |
 | `search_endpoint` | `"/v1/search/eu"` |
 | `search_button_key` | `"search_eu"` |
 | `query_key` | `"eu_query"` |

@@ -6,7 +6,6 @@ from datetime import datetime
 import requests
 import streamlit as st
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 _INTERNAL_API_TOKEN = os.getenv("INTERNAL_API_TOKEN", "")
@@ -59,7 +58,7 @@ def search_projects(
         semantic_weight: float = 0.7,
         filters: Dict[str, List[str]] | None = None,
         timeout: int = 30
-) -> List[Dict]:
+) -> tuple[List[Dict], bool]:
     """Send a search request to the FastAPI backend and return the matched projects.
 
     Args:
@@ -74,7 +73,11 @@ def search_projects(
         timeout (int, default=30): HTTP request timeout in seconds.
 
     Returns:
-        List[Dict]: List of matching project dicts from the `matches` key.
+        tuple[List[Dict], bool]: The project dicts from the `matches` key, and the
+            response's `weak_match` flag — True when nothing in the collection is a
+            genuinely relevant match for the query. The flag is needed because each
+            match's `relative_score` is relative to the best hit in the response, so
+            the top result always reads 100% even for an off-topic query.
 
     Raises:
         requests.HTTPError: On non-2xx responses.
@@ -96,7 +99,7 @@ def search_projects(
     )
     response.raise_for_status()
     data = response.json()
-    return data.get("matches", [])
+    return data.get("matches", []), bool(data.get("weak_match", False))
 
 
 @st.cache_data(ttl=300)
@@ -134,47 +137,124 @@ def fetch_german_taxonomy(
     return data
 
 
-def render_german_project_result(result: Dict) -> None:
-    """Render a German federal funding project as a Streamlit card.
+# The German result card, in display order: (result key, label, is_list).
+#
+# Every field is always rendered — a programme that does not state one shows "N/A"
+# rather than dropping the line, so the card has the same shape for every result and
+# a reader can tell "not stated" from "you scrolled past it".
+GERMAN_RESULT_FIELDS: tuple[tuple[str, str, bool], ...] = (
+    ("project_short_description", "Short description", False),
+    ("project_full_description", "Full description", False),
+    ("funding_location", "Target area", True),
+    ("funding_type", "Type of funding", True),
+    ("eligible_applicants", "Eligible applicants", True),
+    ("funding_area", "Funding area", True),
+    ("status_note", "Status", False),
+    ("deadlines", "Deadlines", False),
+    ("keywords_extracted", "Keywords", True),
+    ("contact_info_institution", "Contact", False),
+)
 
-    Displays title (linked to project website), short/full descriptions, on-website
-    and last-updated dates, funding type, location, area, eligible applicants, and score.
+# Only the short description stays visible; everything after it is folded into an
+# expander so a page of results can be scanned by title and summary alone. The split
+# is presentation only — together the two halves are still GERMAN_RESULT_FIELDS.
+GERMAN_SUMMARY_FIELDS = GERMAN_RESULT_FIELDS[:1]
+GERMAN_DETAIL_FIELDS = GERMAN_RESULT_FIELDS[1:]
+
+DETAILS_EXPANDER_LABEL = "More details"
+
+PLACEHOLDER_VALUE = "N/A"
+
+# How much of the EU card's headline text stays outside the expander. The topic
+# destination runs to several thousand characters — it describes a whole work
+# programme destination, not one topic — and printing it in full would make a
+# single result taller than a screen.
+EU_CARD_DESCRIPTION_CHARS = 400
+
+
+def display_value(value: Any) -> str:
+    """Render a scalar result field, falling back to ``"N/A"``.
+
+    Covers the three ways a field can be absent by the time it reaches the page: the
+    data pipeline filled it with the ``"N/A"`` placeholder, the API defaulted it to
+    an empty string because the collection has no such field, or the key is missing
+    from the result dict entirely.
+
+    Args:
+        value (Any): Raw field value from a result dict.
+
+    Returns:
+        str: The stripped value, or ``"N/A"``.
+    """
+    if value is None:
+        return PLACEHOLDER_VALUE
+    text = str(value).strip()
+    return text or PLACEHOLDER_VALUE
+
+
+def render_relevance(result: Dict, rank: int | None = None) -> None:
+    """Render a result's relevance line.
+
+    The backend's ``relative_score`` is normalised against the best match *in this
+    response*, so the top card is always 100% — for a nonsense query as much as for a
+    real one. Labelling that bare number "Score" claimed an absolute quality it does
+    not have, so the line now names the scale it is on and leads with the rank, which
+    is the part that actually means something. ``SearchResponse.weak_match`` carries
+    the absolute signal and is rendered once above the whole list, not per card.
+
+    Declared once and shared by both cards so the two cannot drift into describing
+    the same number differently.
 
     Args:
         result (Dict): Project dict as returned by `search_projects`.
+        rank (int | None, default=None): 1-based position in the result list. When
+            omitted the rank prefix is left off.
+    """
+    share = result.get("relative_score", 0) * 100
+    position = f"#{rank} — " if rank is not None else ""
+    st.write(f"**Relevance:** {position}{share:.0f}% of the best match for this query")
+
+
+def render_german_project_result(result: Dict, rank: int | None = None) -> None:
+    """Render a German federal funding project as a Streamlit card.
+
+    Displays the title as a link to the programme page and the `GERMAN_SUMMARY_FIELDS`
+    rows, then folds the `GERMAN_DETAIL_FIELDS` rows into a collapsed expander, then
+    the relevance line. List fields are joined via `safe_join`; both helpers fall back
+    to "N/A", so the card never omits a line.
+
+    Args:
+        result (Dict): Project dict as returned by `search_projects`.
+        rank (int | None, default=None): 1-based position in the result list, shown
+            in the relevance line. See `render_relevance`.
     """
     st.subheader(
         f"[{result.get('project_title', 'No title')}]"
         f"({result.get('project_website', '#')})"
     )
-    st.write(
-        "**Short description:**",
-        result.get("project_short_description", "N/A")
-    )
-    st.write(
-        "**Full description:**",
-        result.get("project_full_description", "N/A")
-    )
 
-    try:
-        on_website_from = datetime.fromisoformat(result.get("date_1"))
-        last_updated = datetime.fromisoformat(result.get("date_2"))
-        st.write(
-            "**On the website since:**",
-            on_website_from.strftime("%d %b %Y, %H:%M")
-        )
-        st.write(
-            "**Last updated:**",
-            last_updated.strftime("%d %b %Y, %H:%M")
-        )
-    except (ValueError, TypeError) as exc:
-        logger.debug("Could not parse project dates: %s", exc)
+    _render_german_fields(result, GERMAN_SUMMARY_FIELDS)
+    with st.expander(DETAILS_EXPANDER_LABEL):
+        _render_german_fields(result, GERMAN_DETAIL_FIELDS)
 
-    st.markdown(f"**Type of funding:** {safe_join(result.get('funding_type'))}")
-    st.markdown(f"**Target area:** {safe_join(result.get('funding_location'))}")
-    st.markdown(f"**Funding area:** {safe_join(result.get('funding_area'))}")
-    st.markdown(f"**Eligible applicants:** {safe_join(result.get('eligible_applicants'))}")
-    st.write(f"**Score:** {result.get('matching_score', 0) * 100:.1f} %")
+    render_relevance(result, rank)
+
+
+def _render_german_fields(
+        result: Dict,
+        fields: tuple[tuple[str, str, bool], ...]
+) -> None:
+    """Render a run of German card rows as ``**Label:** value`` markdown lines.
+
+    Args:
+        result (Dict): Project dict as returned by `search_projects`.
+        fields (tuple[tuple[str, str, bool], ...]): Rows to render, in the
+            `GERMAN_RESULT_FIELDS` ``(key, label, is_list)`` shape.
+    """
+    for field, label, is_list in fields:
+        value = result.get(field)
+        rendered = safe_join(value) if is_list else display_value(value)
+        st.markdown(f"**{label}:** {rendered}")
 
 
 def _parse_datetime(value: Any) -> datetime | None:
@@ -202,39 +282,98 @@ def _parse_datetime(value: Any) -> datetime | None:
         return None
 
 
-def render_eu_project_result(result: Dict) -> None:
+def _truncate(text: str, limit: int = EU_CARD_DESCRIPTION_CHARS) -> str:
+    """Shorten `text` to `limit` characters, appending an ellipsis when cut.
+
+    Args:
+        text (str): Text to shorten.
+        limit (int): Maximum characters to keep before the ellipsis.
+
+    Returns:
+        str: `text` unchanged when it fits, otherwise its truncated prefix + "…".
+    """
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "…"
+
+
+def render_eu_project_result(result: Dict, rank: int | None = None) -> None:
     """Render an EU funding call as a Streamlit card.
 
-    Displays title (linked to the EU portal), full description, planned opening
-    date, deadline, and matching score.
+    Displays the title (linked to the EU portal) above a truncated headline, folds
+    the full topic description and the two dates into a collapsed expander, then
+    shows the relevance line. Both dates are always rendered, falling back to "N/A"
+    — the same rule as the German card, so a reader can tell "not stated" from "you
+    scrolled past it".
+
+    The headline is the topic's *destination* — the aims of the work programme
+    destination it sits under — which says what the call is ultimately for far more
+    briefly than the topic text does. The portal states it on Horizon topics only,
+    roughly one open call in eight, so the card falls back to the topic description
+    rather than leading most results with "N/A". Either way the topic description is
+    in the expander, so nothing the card drops is lost.
 
     Args:
         result (Dict): Project dict as returned by `search_projects`.
+        rank (int | None, default=None): 1-based position in the result list, shown
+            in the relevance line. See `render_relevance`.
     """
     st.subheader(
         f"[{result.get('project_title', 'No title')}]"
         f"({result.get('project_website', '#')})"
     )
-    st.write("**Description:**", result.get("project_full_description", "N/A"))
 
-    start_date = _parse_datetime(result.get("date_1"))
-    deadline = _parse_datetime(result.get("date_2"))
+    destination = display_value(result.get("topic_destination"))
+    description = display_value(result.get("project_full_description"))
+    headline = description if destination == PLACEHOLDER_VALUE else destination
+    st.write("**Description:**", _truncate(headline))
 
-    if start_date is not None:
-        st.write(
-            "**Planned opening date:**",
-            start_date.strftime("%d %b %Y, %H:%M")
-        )
-    if deadline is not None:
-        st.write(
-            "**Deadline:**",
-            deadline.strftime("%d %b %Y, %H:%M")
-        )
+    with st.expander(DETAILS_EXPANDER_LABEL):
+        st.write("**Topic description:**", description)
+        st.write("**Planned opening date:**", _display_date(result.get("date_1")))
+        st.write("**Deadline:**", _display_date(result.get("date_2")))
 
-    st.write(f"**Score:** {result.get('matching_score', 0) * 100:.1f} %")
+    render_relevance(result, rank)
 
 
-def _friendly_search_error(error: Exception) -> str:
+#: One display format for every date the UI shows, so a result card, the watchlist
+#: and the saved-search pages cannot drift apart. Day-month-year with a 24-hour
+#: clock and an abbreviated month reads unambiguously to both German and English
+#: users, which a numeric-only format does not.
+DATE_DISPLAY_FORMAT = "%d %b %Y, %H:%M"
+
+
+def format_timestamp(value: datetime) -> str:
+    """Format a known-present datetime for display.
+
+    For the pages that hold a real ``datetime`` from the database and have nothing
+    to fall back to. Use `_display_date` where the value may be absent or a string.
+
+    Args:
+        value (datetime): The timestamp to render.
+
+    Returns:
+        str: Formatted per `DATE_DISPLAY_FORMAT`.
+    """
+    return value.strftime(DATE_DISPLAY_FORMAT)
+
+
+def _display_date(value: Any) -> str:
+    """Format a datetime-like value for the EU card, falling back to ``"N/A"``.
+
+    Args:
+        value (Any): ISO-8601 string, ``datetime`` instance, or ``None``.
+
+    Returns:
+        str: Date formatted per `DATE_DISPLAY_FORMAT`, or ``"N/A"`` when unparseable.
+    """
+    parsed = _parse_datetime(value)
+    if parsed is None:
+        return PLACEHOLDER_VALUE
+    return format_timestamp(parsed)
+
+
+def friendly_search_error(error: Exception) -> str:
     """Map a search exception to a user-friendly error message for display in the UI.
 
     Args:
