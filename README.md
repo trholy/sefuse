@@ -97,7 +97,24 @@ Everything else in `.env` can be left at its default value to get started.
 
 ---
 
-### Step 4 - Start the system
+### Step 4 - Prepare the data folders (Linux only)
+
+**Skip this step on Windows and macOS** - Docker Desktop handles it for you.
+
+On Linux, run this once before the first start:
+
+```bash
+sudo ./setup.sh
+```
+
+The services run as non-root users inside their containers, and Linux keeps the folders you
+just cloned owned by your own user account. Without this step the database and the embedding
+model cannot write to their folders, and you will see `Permission denied` errors on startup.
+The script creates the four data folders and hands each one to the right user.
+
+---
+
+### Step 5 - Start the system
 
 In your terminal (still inside the `sefuse` folder), run:
 
@@ -118,7 +135,7 @@ You will see a stream of log output in the terminal. This is normal. The system 
 
 ---
 
-### Step 5 - Open the web interface
+### Step 6 - Open the web interface
 
 Once the system is running, open your browser and go to:
 
@@ -154,7 +171,7 @@ The five services interact across three Docker networks (`backend`, `frontend`, 
 2. **FastAPI** cleans and transforms the raw data: HTML is stripped, fields are extracted, each program receives a deterministic UUID, and the result is written to a Parquet file with a taxonomy JSON sidecar.
 3. **FastAPI** reads the Parquet file and splits each program description into text chunks. Documents under `ADAPTIVE_CHUNK_THRESHOLD` tokens (default 600) are kept as a single chunk. Longer documents are split into 512-token windows with 62-token overlap, snapped to the last sentence boundary in the trailing quarter to avoid mid-sentence cuts.
 4. Each chunk is prepended with a contextual header (`Title: ...\nFunding area: ...\n\n`) so it is self-contained for retrieval. **FastAPI** sends all chunks for one project in a single batched embed request to **Ollama** (`bge-m3`, 1024-dim dense vector).
-5. **FastAPI** also builds a sparse BM25-style vector for each chunk: stopwords (German + English) are removed, German Snowball stemming and compound splitting are applied, term frequencies are BM25-saturated (`k1=1.2`), and token indices are hashed via MD5.
+5. **FastAPI** also builds a sparse BM25-style vector for each chunk, analysed in the collection's own language. German funding: German + English stopwords are removed, then German Snowball stemming and compound splitting. EU funding (English-only text): English stopwords and English Snowball stemming, with no compound splitting — English compounds are space-separated, and the German fugen splitter only produces noise on them. Either way, term frequencies are BM25-saturated (`k1=1.2`) and token indices are hashed via MD5.
 6. Each chunk is stored in **Qdrant** as its own point with a deterministic UUID5 ID (`uuid5(project_uuid, "chunk_{i}")`), carrying both `dense` and `sparse` named vectors plus the project metadata as payload. Stale points from removed programs are cleaned up via a payload filter on `project_uuid`.
 
 ### Search (per user query)
@@ -163,20 +180,42 @@ The five services interact across three Docker networks (`backend`, `frontend`, 
 8. **FastAPI** embeds the query text with **Ollama** using the same model and no special prefix (`bge-m3` is symmetric — documents and queries are embedded identically).
 9. **FastAPI** asks **Qdrant** to run a **Convex Combination hybrid search**: dense cosine similarity and sparse BM25 results are fetched independently via prefetch, min-max normalised per branch, then combined as `score = w × dense_norm + (1−w) × sparse_norm` where `w` is `semantic_weight`.
 10. **FastAPI** aggregates the chunk-level Qdrant results by `project_uuid` using **TopK-Avg**: the top-3 chunk scores per project are averaged into a single project score.
-11. Scores are normalised to [0, 1] relative to the highest-scoring project in the result set.
-12. Taxonomy filters and the optional drop-N/A filter are applied server-side. Results are sorted by descending score and truncated to the requested `limit`.
-13. **Streamlit** renders the results: score, title, short description, metadata, and a direct link to the funding program's detail page.
+11. Taxonomy filters and the optional drop-N/A filter are applied server-side.
+12. The scores that survive filtering are normalised to [0, 1] against the best remaining match, and returned as `relative_score`. Results are sorted by descending score and truncated to the requested `limit`. Filtering before normalising matters: the other order scales the list against a programme the filter just removed.
+13. **FastAPI** also returns a `weak_match` flag. Because `relative_score` is relative, the top result always reads 100% — even for a query no programme really answers. The flag compares the query's best similarity anywhere in the collection against what deliberately off-topic probe queries reach there, so the UI can say when a result list is "the closest available" rather than relevant.
+14. **Streamlit** renders the results: relevance, title, short description, metadata, and a direct link to the funding program's detail page — with a warning above the list when `weak_match` is set.
+
+#### Query language and the keyword channel
+
+German funding programmes are described in German, EU calls in English, and each collection's sparse
+index is built in that language. You can search either collection in either language, but the two
+channels do not behave the same way across languages:
+
+- **Dense (semantic)** uses `bge-m3`, which is multilingual. It bridges German ↔ English, so a German
+  query still finds relevant English EU calls.
+- **Sparse (keyword)** is BM25 over hashed tokens and is monolingual by construction. It cannot match
+  a German query term against an English document, whatever the stemmer does.
+
+So querying in the *other* language leaves the keyword half contributing almost nothing, and the
+result is carried by the dense vector alone — at the default `semantic_weight` of 0.7 that is roughly
+30% of the score doing little work. **For the best results, describe your project in the language of
+the funding source**: German for the Förderdatenbank, English for EU calls. Lowering
+`semantic_weight` toward pure keyword search only helps when your query language matches the corpus.
 
 ### Data persistence
 
 All indexed data survives container restarts through Docker volumes:
 
-| Volume | Contents |
-|---|---|
-| `./data/qdrant` | All Qdrant collections — dense and sparse vectors plus payloads |
-| `./data/funding_data` | Processed Parquet files and taxonomy JSON sidecars |
-| `./ollama/data` | Downloaded `bge-m3` model weights |
-| `./data/postgres` | User accounts and bcrypt hashes |
+| Volume | Contents | Owner UID on Linux |
+|---|---|---|
+| `./data/qdrant` | All Qdrant collections — dense and sparse vectors plus payloads | `0` |
+| `./data/funding_data` | Processed Parquet files and taxonomy JSON sidecars | `10001` |
+| `./ollama/data` | Downloaded `bge-m3` model weights | `999` |
+| `./data/postgres` | User accounts and bcrypt hashes | `70` |
+
+On Linux these are bind mounts, so they keep host ownership and must be owned by the UID of
+the non-root user inside each container — that is what `sudo ./setup.sh` sets up (Step 4).
+Docker Desktop on Windows and macOS handles it transparently.
 
 ---
 
@@ -269,10 +308,10 @@ fastapi:
   environment:
     - MODEL=bge-m3
     - TOKENIZER=BAAI/bge-m3
-    - CRON_TRIGGER_GERMAN_DATA_PROCESSING=0
-    - CRON_TRIGGER_GERMAN_EMBEDDING=3
-    - CRON_TRIGGER_EU_DATA_PROCESSING=1
-    - CRON_TRIGGER_EU_EMBEDDING=4
+    - CRON_TRIGGER_GERMAN_DATA_PROCESSING=${CRON_TRIGGER_GERMAN_DATA_PROCESSING:-0}
+    - CRON_TRIGGER_GERMAN_EMBEDDING=${CRON_TRIGGER_GERMAN_EMBEDDING:-3}
+    - CRON_TRIGGER_EU_DATA_PROCESSING=${CRON_TRIGGER_EU_DATA_PROCESSING:-1}
+    - CRON_TRIGGER_EU_EMBEDDING=${CRON_TRIGGER_EU_EMBEDDING:-4}
     - OLLAMA_URL=http://ollama:11434
     - VECTOR_DB_HOST=qdrant
     - QDRANT_PORT=6333
@@ -297,6 +336,11 @@ FastAPI is the **brain of the system**. It:
 | `CRON_TRIGGER_GERMAN_EMBEDDING`       | Hour (0–23) when German embeddings are refreshed     |
 | `CRON_TRIGGER_EU_DATA_PROCESSING`     | Hour (0–23) when EU funding data is refreshed        |
 | `CRON_TRIGGER_EU_EMBEDDING`           | Hour (0–23) when EU embeddings are refreshed         |
+| `ALERTS_ENABLED`                      | Master switch for saved-search alerts (default `true`). `false` switches the feature off entirely: no nightly check job, no alert inbox, no sidebar badge, no alert controls in the UI, and every `ALERT_*`/`GOTIFY_*` setting below is ignored. Saved searches keep working. |
+| `ALERT_LEVEL_RULES`                   | Optional JSON `{"level": k}` overriding how many top existing programmes a new one must rank among (default Broad 25, Balanced 10, Strict 3) |
+| `ALERT_NOISE_MARGIN`                  | How far above the best off-topic canary cosine a new programme must score to alert (default 0.04) |
+| `FIRST_SEEN_BURST_MIN` / `FIRST_SEEN_BURST_RATIO` | Re-key guard: a larger burst of "new" programmes is stamped as legacy (default 25 / 0.1) |
+| `DUPLICATE_COSINE`                    | Cosine at which a new programme counts as a near-duplicate and never alerts (default 0.97) |
 | `OLLAMA_URL`                          | Internal Ollama API endpoint                         |
 | `VECTOR_DB_HOST`                      | Qdrant hostname inside Docker                        |
 | `QDRANT_PORT`                         | Qdrant service port                                  |
@@ -307,10 +351,26 @@ FastAPI is the **brain of the system**. It:
 | `OLLAMA_EMBED_TIMEOUT_SECONDS`        | Per-request embedding timeout in seconds (default `120`) |
 | `OLLAMA_MODEL_READY_INTERVAL`         | Seconds between Ollama readiness probes on startup (default `10`) |
 | `OLLAMA_MODEL_READY_TIMEOUT`          | Max seconds to wait for Ollama before skipping embeddings (default `600`) |
-| `EU_API_KEY`                          | API key for the EU Funding & Tenders Portal search API. `SEDIA` is the public key. |
+| `EU_API_KEY`                          | API key for the EU Funding & Tenders Portal search API (`SEDIA`). |
 | `EU_MAX_PAGES`                        | Maximum pages fetched from the EU API per run (default `100`) |
 | `INTERNAL_API_TOKEN`                  | Shared secret between FastAPI and Streamlit. Required at startup (see [Security notes](#security-notes)). |
 | `ALLOW_UNAUTHENTICATED_INTERNAL_API`  | Set `true` to skip token auth in local dev. Logs a warning. |
+
+All of these can be set in `.env`; `docker-compose.yml` passes them through with the defaults shown.
+
+#### Push notifications (Gotify)
+
+Saved-search alerts always land in the in-app inbox. They can additionally be pushed to users' devices through a [Gotify](https://gotify.net) server that you run yourself. Push is off by default.
+
+| Variable                 | Meaning                                              |
+|--------------------------|------------------------------------------------------|
+| `GOTIFY_ENABLED`         | `true` switches push on (default `false`)            |
+| `GOTIFY_URL`             | Base URL of your Gotify server, e.g. `https://gotify.example.com` or `http://192.168.1.20:8080`. A server on your own network is fine. |
+| `GOTIFY_SECRET_KEY`      | Fernet key that encrypts users' Gotify tokens in the database. Required when push is on. Generate with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Rotating it invalidates every stored token. |
+| `GOTIFY_PRIORITY`        | Default message priority, 0-10 (default `5`)         |
+| `GOTIFY_TIMEOUT_SECONDS` | HTTP timeout for calls to Gotify (default `10`)      |
+
+Each user then pastes their own Gotify *application token* on the Notification Settings page. With push on, the titles of matching programmes and of the saved search are sent to that Gotify server.
 
 
 ---
@@ -369,6 +429,9 @@ Streamlit provides the **user interface** where users enter project descriptions
 | `SESSION_TIMEOUT_MINUTES`  | Idle session expiry in minutes (default `30`)                    |
 | `BCRYPT_ROUNDS`            | bcrypt cost factor for password hashing (default `12`)           |
 | `PASSWORD_MIN_LENGTH`      | Minimum character length for user passwords (default `8`)        |
+| `SESSION_COOKIE_SECURE`    | Adds the `Secure` attribute to the session cookie; set `true` behind TLS (default `false`) |
+| `LOGIN_LOCKOUT_MAX_ATTEMPTS` | Consecutive failed logins before an account is temporarily locked (default `5`) |
+| `LOGIN_LOCKOUT_DURATION_MINUTES` | How long such a lock lasts, in minutes (default `15`)        |
 
 ---
 
@@ -399,9 +462,7 @@ FastAPI and Streamlit run with `read_only: true` - the container filesystem is m
 
 ## EU API Key
 
-`SEDIA` is the public key for the [EU Funding & Tenders Portal](https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/support/apis). It may be subject to rate limits.
-
-When `EU_API_KEY=SEDIA`, a startup warning is logged by the EU pipeline.
+`SEDIA` is the API key documented for the [EU Funding & Tenders Portal](https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/support/apis) search API. It is the value to use — no registration or replacement is needed; keep `EU_API_KEY=SEDIA` as shipped in `.env.example`.
 
 ---
 
@@ -447,7 +508,7 @@ Contributions are welcome.
 
 ## Acknowledgements
 
-This project builds upon the data collected by **jstet** and **pr130**, creators of the  
-**[Funding Scraper](https://github.com/CorrelAid/cdl_funding_scraper/)** project.
+This project builds upon the data collected by **jstet**, creator of the  
+**[fdb-scraper](https://github.com/CorrelAid/fdb_scraper)** project.
 
-Their work on scraping and providing structured funding data forms the foundation of this project.  
+His work on scraping and providing structured funding data forms the foundation of this project.  
