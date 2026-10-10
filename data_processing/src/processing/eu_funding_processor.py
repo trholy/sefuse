@@ -1,6 +1,7 @@
 """Transforms raw EU call dicts into a typed Polars DataFrame."""
 
 import hashlib
+import logging
 from datetime import datetime
 
 import polars as pl
@@ -11,6 +12,8 @@ from data_processing.config import (
     EU_STATUS_OPEN,
     EU_ACTIVE_STATUS_CODES,
 )
+
+logger = logging.getLogger(__name__)
 
 UUID_SOURCE_COLUMN = "uuid_source_call_id"
 MIN_DESCRIPTION_LENGTH = 25
@@ -44,6 +47,10 @@ EU_COMMON_SCHEMA = {
     "deleted": pl.Boolean,
     "project_short_description": pl.Utf8,
     "project_full_description": pl.Utf8,
+    # EU-only. The German parquet has no such column, the same way it has no
+    # `date_1`/`date_2` — the payload builder backfills whichever the collection
+    # does not carry.
+    "topic_destination": pl.Utf8,
     UUID_SOURCE_COLUMN: pl.Utf8,
 }
 
@@ -218,7 +225,10 @@ class EuFundingProcessor:
 
             url = self._normalize_string(item.get("url"))
 
-            uuid_source = call_id or identifier or url or title
+            # `identifier` is the topic id and the real primary key. `call_id` is the
+            # *call* it belongs to, and one call carries many topics — preferring it
+            # collapsed 309 rows onto 56 uuids, so most topics never reached search.
+            uuid_source = identifier or call_id or url or title
 
             if description_from_html != "N/A" and summary != description_from_html:
                 combined_description = f"{summary}\n\n{description_from_html}"
@@ -257,6 +267,9 @@ class EuFundingProcessor:
                     "deleted": self._parse_status(status_code),
                     "project_short_description": summary,
                     "project_full_description": description_from_html,
+                    "topic_destination": self._html_cleaner.clean(
+                        item.get("destination_html")
+                    ),
                     UUID_SOURCE_COLUMN: uuid_source,
                 }
             )
@@ -267,6 +280,17 @@ class EuFundingProcessor:
             )
 
         df = pl.DataFrame(rows)
+
+        # The API returns the same topic on more than one page (1246 records for 1001
+        # topics in a typical fetch). Duplicates would be embedded twice onto the same
+        # chunk point ids, so they are dropped before uuids are derived.
+        deduplicated = df.unique(subset="id_hash", keep="first", maintain_order=True)
+        if deduplicated.height != df.height:
+            logger.info(
+                "EU transform: dropped %s duplicate call records (%s -> %s)",
+                df.height - deduplicated.height, df.height, deduplicated.height,
+            )
+        df = deduplicated
 
         for column, dtype in EU_COMMON_SCHEMA.items():
             if column not in df.columns:

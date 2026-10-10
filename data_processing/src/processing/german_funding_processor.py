@@ -1,4 +1,4 @@
-"""German-funding-specific processing hook for date column normalisation."""
+"""German-funding-specific processing hook for column normalisation."""
 
 import polars as pl
 
@@ -6,24 +6,25 @@ import polars as pl
 class GermanFundingProcessor:
     """German-funding-specific processing hook.
 
-    The German dataset already follows the target structure before shared
-    cleaning/UUID/export steps, so this processor currently acts as a
-    dedicated extension point without altering rows.
+    ``GermanFundingCsvParser`` already produces the target structure, including
+    ``project_short_description`` and ``project_full_description``. This processor
+    only maps the one column whose source name differs from the shared schema.
     """
 
     @staticmethod
     def transform(df: pl.DataFrame) -> pl.DataFrame:
-        """Rename German-specific date columns to the shared `date_1`/`date_2` schema.
+        """Rename ``absent`` to the shared schema's ``deleted``.
+
+        ``absent`` is upstream's name for "no longer in the export" — renamed from
+        "deleted" there because absence has several causes (the programme ended, was
+        reorganised, or upstream restructured their data). Downstream,
+        ``Pipeline._delete_removed_projects`` keys off ``deleted`` to drop stale
+        points from Qdrant.
 
         Args:
-            df (pl.DataFrame): Raw German funding DataFrame with `on_website_from`
-                and `last_updated` columns.
+            df (pl.DataFrame): Raw German funding DataFrame with an ``absent`` column.
 
         Returns:
-            pl.DataFrame: DataFrame with columns renamed to `date_1` and `date_2`.
+            pl.DataFrame: DataFrame with ``absent`` renamed to ``deleted``.
         """
-        df = df.rename({
-            "on_website_from": "date_1",
-            "last_updated": "date_2"
-        })
-        return df
+        return df.rename({"absent": "deleted"})

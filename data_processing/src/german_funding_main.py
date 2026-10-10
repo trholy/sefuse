@@ -1,11 +1,8 @@
-"""Entry point for the German federal funding data pipeline (download → extract → process → store)."""
+"""Entry point for the German federal funding data pipeline (download → parse → process → store)."""
 
-import uuid
 import logging
 
-import polars as pl
-
-from data_processing.config import GermanFundingConfig
+from data_processing.config import GermanFundingConfig, GERMAN_UUID_NAMESPACE
 from data_processing.processing import (
     CommonDataPipeline,
     DataCleaner,
@@ -13,18 +10,18 @@ from data_processing.processing import (
     HtmlCleaner,
     UuidGenerator,
 )
-from data_processing.utils import FileDownloader, ZipExtractor
+from data_processing.utils import FileDownloader, GermanFundingCsvParser
 
 logger = logging.getLogger(__name__)
 
 
 def run_german_funding_pipeline() -> None:
-    """Download, extract, clean, and embed the German federal funding dataset.
+    """Download, parse, clean, and store the German federal funding dataset.
 
     Orchestrates the full pipeline:
-    1. Downloads the ZIP from `GermanFundingConfig.zip_url`.
-    2. Extracts `data.parquet` from the archive.
-    3. Renames date columns via `GermanFundingProcessor`.
+    1. Downloads the published CSV from `GermanFundingConfig.csv_url`.
+    2. Parses the CSV into a DataFrame via `GermanFundingCsvParser`.
+    3. Renames date/absence columns via `GermanFundingProcessor`.
     4. Runs `CommonDataPipeline.process_and_store` to clean, canonicalise taxonomy,
        assign UUIDs, and write both the cleaned and UUID Parquet files plus the
        taxonomy JSON to `GermanFundingConfig.data_dir`.
@@ -35,26 +32,32 @@ def run_german_funding_pipeline() -> None:
     config = GermanFundingConfig()
 
     downloader = FileDownloader()
-    extractor = ZipExtractor()
 
-    logger.info("German pipeline: downloading dataset from %s", config.zip_url)
-    downloader.download(config.zip_url, config.zip_path)
-    logger.info("German pipeline: extracting parquet from %s", config.zip_path)
-    extractor.extract_file(
-        zip_path=config.zip_path,
-        filename="data.parquet",
-        target_path=config.raw_parquet,
-    )
+    logger.info("German pipeline: downloading CSV from %s", config.csv_url)
+    try:
+        downloader.download(config.csv_url, config.csv_path)
+    except Exception as exc:
+        if config.csv_path.exists():
+            logger.warning(
+                "German pipeline: download failed (%s) — continuing with existing file %s",
+                exc,
+                config.csv_path,
+            )
+        else:
+            raise RuntimeError(
+                f"German pipeline: download failed and no local CSV found at {config.csv_path}. "
+                "Place the CSV export manually at that path to proceed."
+            ) from exc
 
-    logger.info("German pipeline: loading parquet %s", config.raw_parquet)
-    raw_df = pl.read_parquet(config.raw_parquet)
+    logger.info("German pipeline: parsing CSV from %s", config.csv_path)
+    raw_df = GermanFundingCsvParser().parse(config.csv_path)
     logger.info("German pipeline: loaded %s rows", raw_df.height)
     german_df = GermanFundingProcessor.transform(raw_df)
 
     common_pipeline = CommonDataPipeline(
         cleaner=DataCleaner(HtmlCleaner()),
         uuid_generator=UuidGenerator(
-            namespace=uuid.UUID("12345678-1234-5678-1234-567812345678")
+            namespace=GERMAN_UUID_NAMESPACE
         ),
     )
 

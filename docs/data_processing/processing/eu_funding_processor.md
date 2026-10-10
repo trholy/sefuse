@@ -10,7 +10,7 @@ Transforms raw EU call dicts from the API into a typed Polars DataFrame.
 |---|---|---|
 | `UUID_SOURCE_COLUMN` | `str` | `"uuid_source_call_id"` — Temporary column holding the string used as UUID5 input; dropped before Parquet storage. |
 | `MIN_DESCRIPTION_LENGTH` | `int` | `25` — Minimum character length of a cleaned description required to keep a record. |
-| `EU_COMMON_SCHEMA` | `dict[str, pl.DataType]` | Polars schema defining all columns and dtypes for the normalised EU DataFrame (identifier, title, datetime, taxonomy list, contact, and `deleted` fields). |
+| `EU_COMMON_SCHEMA` | `dict[str, pl.DataType]` | Polars schema defining all columns and dtypes for the normalised EU DataFrame (identifier, title, datetime, taxonomy list, contact, and `deleted` fields). Includes the EU-only `topic_destination` (`pl.Utf8`), cleaned from the fetcher's `destination_html`; the German parquet has no such column, the way it has no `date_1`/`date_2`. The EU portal states a destination on Horizon topics only, so `"N/A"` is the usual value. |
 
 ---
 

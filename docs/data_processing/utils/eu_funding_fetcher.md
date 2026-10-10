@@ -122,6 +122,10 @@ Stops when a page returns no results or `max_pages` is reached. Logs per-page ke
 
 **Returns:** `list[dict]` — Normalised call records filtered to OPEN/FORTHCOMING + English.
 
+Each record is an explicit whitelist of keys — `id`, `title`, `call_id`, `programme`, `status_code`, `start_date`, `deadline`, `url`, `summary`, `description_html`, `destination_html`, `keywords`, `language`, `metadata_languages` — so anything the API returns that is not named there is discarded before the JSON cache is written. Adding a field means adding it here first.
+
+`destination_html` comes from the API's `destinationDetails`: the portal's "Destination" block, the aims of the work programme destination a topic sits under, which the EU result card leads with. It arrives as a single-element list of HTML that `_get_meta_value` unwraps, and it is stated on Horizon topics only — roughly one open call in eight — so `None` is the common case. The cached `data/funding_data/eu_open_calls.json` predates the key, so an API-outage fallback run carries no destinations until the cache is rewritten.
+
 ---
 
 ### `load(path: Path) -> list[dict]`

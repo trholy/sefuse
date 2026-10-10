@@ -29,10 +29,9 @@ Fetch, process, and store the EU funding dataset end-to-end.
 Orchestrates the full EU pipeline:
 
 1. Builds `EuFundingConfig` from environment-backed defaults.
-2. Logs a `WARNING` when `config.api_key == "SEDIA"` (public key in use).
-3. Fetches open/forthcoming calls via `EuFundingFetcher`, falling back to the cached JSON on network failure.
-4. Transforms raw dicts to a typed Polars DataFrame via `EuFundingProcessor`.
-5. Runs `CommonDataPipeline.process_and_store` to clean HTML, canonicalise the `funding_area` taxonomy, assign UUIDs, and write Parquet files plus the taxonomy JSON.
+2. Fetches open/forthcoming calls via `EuFundingFetcher`, falling back to the cached JSON on network failure.
+3. Transforms raw dicts to a typed Polars DataFrame via `EuFundingProcessor`.
+4. Runs `CommonDataPipeline.process_and_store` to clean HTML, canonicalise the `funding_area` taxonomy, assign UUIDs, and write Parquet files plus the taxonomy JSON.
 
 Invoked by the FastAPI APScheduler cron job and on startup.
 
@@ -40,7 +39,7 @@ Invoked by the FastAPI APScheduler cron job and on startup.
 
 ## EU API Key
 
-`SEDIA` is the publicly documented demo key for the EU Funding & Tenders Portal search API. It is sufficient for development but may have undocumented rate limits. For production deployments, set a private key via the `EU_API_KEY` environment variable.
+`SEDIA` is the API key documented for the EU Funding & Tenders Portal search API and the value `EU_API_KEY` is meant to carry. It is not a placeholder — no separate key needs to be requested.
 
 ## Outputs
 

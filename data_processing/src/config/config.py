@@ -7,13 +7,20 @@ their respective funding pipelines.
 """
 
 import os
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
+GERMAN_UUID_NAMESPACE = uuid.UUID("12345678-1234-5678-1234-567812345678")
+EU_UUID_NAMESPACE = uuid.UUID("87654321-4321-8765-4321-876543218765")
 
+
+# CorrelAid's published Förderdatenbank dataset (CC BY-ND 4.0, BMWE as rights holder).
+# A contract-checked CSV rebuilt weekly from the BMWE XML export, with nested values
+# JSON-encoded per cell. See data_processing/CLAUDE.md for the column contract.
 GERMAN_FUNDING_DATA_URL = os.getenv(
     "GERMAN_FUNDING_DATA_URL",
-    "https://foerderdatenbankdump.fra1.cdn.digitaloceanspaces.com/data/parquet_data.zip",
+    "https://fdb.cdl.correlaid.org/data/programme.csv",
 )
 EU_API_URL = os.getenv(
     "EU_API_URL",
@@ -36,10 +43,9 @@ class GermanFundingConfig:
     """
 
     data_dir: Path = Path("data")
-    zip_url: str = GERMAN_FUNDING_DATA_URL
+    csv_url: str = GERMAN_FUNDING_DATA_URL
 
-    zip_path: Path = data_dir / "german_parquet_data.zip"
-    raw_parquet: Path = data_dir / "german_parquet_data.parquet"
+    csv_path: Path = data_dir / "german_programme.csv"
     cleaned_parquet: Path = data_dir / "german_parquet_data_cleaned.parquet"
     uuid_parquet: Path = data_dir / "german_parquet_data_uuid.parquet"
     taxonomy_json: Path = data_dir / "taxonomy_german.json"

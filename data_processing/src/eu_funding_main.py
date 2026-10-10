@@ -1,22 +1,64 @@
 """Entry point for the EU funding data pipeline (fetch → process → store)."""
 
 import logging
-import uuid
 
 import requests
 
-from data_processing.config import EuFundingConfig
+from data_processing.config import EuFundingConfig, EU_UUID_NAMESPACE
 from data_processing.processing import (
     CommonDataPipeline,
     DataCleaner,
     EuFundingProcessor,
     HtmlCleaner,
+    MAX_DROP_RATIO,
     UUID_SOURCE_COLUMN,
     UuidGenerator,
+    drop_ratio,
 )
-from data_processing.utils import EuFundingFetcher
+from data_processing.utils import EuFundingFetcher, TruncatedFetchError
 
 logger = logging.getLogger(__name__)
+
+
+def _cache_is_safe_to_overwrite(
+    calls: list[dict],
+    config: EuFundingConfig,
+    fetcher: EuFundingFetcher,
+) -> bool:
+    """Return whether `calls` is complete enough to replace the cached snapshot.
+
+    The cache is the fallback used whenever the API is unreachable, so overwriting it
+    with a short fetch would destroy the only good copy and make the truncation
+    permanent.
+
+    Args:
+        calls (list[dict]): Freshly fetched call records.
+        config (EuFundingConfig): Pipeline configuration, for the cache path.
+        fetcher (EuFundingFetcher): Used to read the cached snapshot back.
+
+    Returns:
+        bool: True when there is no usable cache to compare against, or when the
+            record count did not fall by more than ``DATA_REFRESH_MAX_DROP_RATIO``.
+    """
+    if not config.raw_json.exists():
+        return True
+    try:
+        cached_count = len(fetcher.load(config.raw_json))
+    except Exception as error:
+        logger.warning("Could not read cached EU calls (%s) — overwriting", error)
+        return True
+    if cached_count == 0:
+        return True
+
+    ratio = drop_ratio(cached_count, len(calls))
+    if ratio > MAX_DROP_RATIO:
+        logger.error(
+            "EU fetch returned %s calls, down from %s cached (%.1f%% drop, limit "
+            "%.1f%%). Keeping the cached snapshot.",
+            len(calls), cached_count, ratio * 100, MAX_DROP_RATIO * 100,
+        )
+        return False
+    return True
 
 
 def _load_or_fetch_open_calls(
@@ -26,8 +68,10 @@ def _load_or_fetch_open_calls(
 ) -> list[dict]:
     """Fetch EU calls from the API, falling back to the cached JSON on network errors.
 
-    Saves freshly fetched calls to `config.raw_json` before returning them.
-    If the API request fails and no cache file exists, the exception is re-raised.
+    Saves freshly fetched calls to `config.raw_json` before returning them, but only
+    when the fetch looks complete — see `_cache_is_safe_to_overwrite`. A fetch that
+    stopped early falls back to the cache rather than propagating a short result set
+    into the Parquet file, where the missing projects would read as withdrawn.
 
     Args:
         config (EuFundingConfig): Pipeline configuration with API settings and file paths.
@@ -39,18 +83,21 @@ def _load_or_fetch_open_calls(
 
     Raises:
         requests.RequestException: If the API is unreachable and no cache exists.
+        TruncatedFetchError: If pagination stopped early and no cache exists.
     """
     try:
         calls = fetcher.fetch_open_and_forthcoming_calls(
             page_size=config.page_size,
             max_pages=max_pages,
         )
+        if not _cache_is_safe_to_overwrite(calls, config, fetcher):
+            return fetcher.load(config.raw_json)
         fetcher.save(calls, config.raw_json)
         return calls
-    except requests.RequestException as error:
+    except (requests.RequestException, TruncatedFetchError) as error:
         if config.raw_json.exists():
             logger.warning(
-                "EU API request failed (%s). Falling back to cached file: %s",
+                "EU fetch failed (%s). Falling back to cached file: %s",
                 error,
                 config.raw_json,
             )
@@ -72,11 +119,6 @@ def run_eu_funding_pipeline() -> None:
     """
     config = EuFundingConfig()
 
-    if config.api_key == "SEDIA":
-        logger.warning(
-            "Using public demo EU_API_KEY=SEDIA."
-        )
-
     fetcher = EuFundingFetcher(
         api_url=config.api_url,
         api_key=config.api_key,
@@ -92,7 +134,7 @@ def run_eu_funding_pipeline() -> None:
     common_pipeline = CommonDataPipeline(
         cleaner=DataCleaner(HtmlCleaner()),
         uuid_generator=UuidGenerator(
-            namespace=uuid.UUID("12345678-1234-5678-1234-567812345678")
+            namespace=EU_UUID_NAMESPACE
         ),
     )
 

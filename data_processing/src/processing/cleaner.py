@@ -28,7 +28,10 @@ class HtmlCleaner:
 
 
 class DataCleaner:
-    """Cleans a raw funding DataFrame: extracts description sections, fills nulls, strips HTML.
+    """Cleans a raw funding DataFrame: fills nulls and strips HTML from string columns.
+
+    German-specific description extraction (Kurztext/Volltext) is performed
+    upstream by ``GermanFundingProcessor.transform()``, not here.
 
     Args:
         html_cleaner (HtmlCleaner): Instance used to strip HTML from string columns.
@@ -47,46 +50,20 @@ class DataCleaner:
         self._html_cleaner = html_cleaner
 
     def clean_dataframe(self, df: pl.DataFrame) -> pl.DataFrame:
-        """Apply all cleaning steps to a funding DataFrame.
+        """Apply generic cleaning steps to a funding DataFrame.
 
-        Extracts `project_short_description` and `project_full_description`
-        from the HTML `description` column (German pattern), replaces empty
-        strings with "N/A", and strips HTML from all remaining string columns.
+        Replaces empty strings with "N/A" and strips HTML from all string
+        columns. German-specific description extraction (Kurztext/Volltext)
+        is handled upstream by `GermanFundingProcessor.transform()`.
 
         Args:
-            df (pl.DataFrame): Raw input DataFrame with at least a `description` column.
+            df (pl.DataFrame): Input DataFrame, already containing
+                `project_short_description` and `project_full_description`
+                columns if applicable.
 
         Returns:
-            pl.DataFrame: Cleaned DataFrame with description fields populated.
+            pl.DataFrame: Cleaned DataFrame with HTML stripped and nulls filled.
         """
-        short_description_expr = pl.col("description").str.extract(
-            r"<h3>\s*Kurztext\s*</h3>(.*?)<h3>\s*Volltext\s*</h3>",
-            1,
-        )
-        full_description_expr = pl.col("description").str.extract(
-            r"<h3>\s*Volltext\s*</h3>(.*)$",
-            1,
-        )
-
-        # Preserve already mapped values (e.g. EU input) and only fill
-        # from HTML sections when they are not present yet.
-        if "project_short_description" in df.columns:
-            short_description_expr = pl.coalesce([
-                pl.col("project_short_description"),
-                short_description_expr,
-            ])
-
-        if "project_full_description" in df.columns:
-            full_description_expr = pl.coalesce([
-                pl.col("project_full_description"),
-                full_description_expr,
-            ])
-
-        df = df.with_columns([
-            short_description_expr.alias("project_short_description"),
-            full_description_expr.alias("project_full_description"),
-        ])
-
         df = df.with_columns(
             pl.col(pl.Utf8).replace("", None).fill_null("N/A")
         )
@@ -97,9 +74,15 @@ class DataCleaner:
 
         for col in string_columns:
             df = df.with_columns(
-                pl.col(col).map_elements(
-                    self._html_cleaner.clean,
-                    return_dtype=pl.Utf8,
-                ))
+                pl.when(pl.col(col).str.contains("<"))
+                .then(
+                    pl.col(col).map_elements(
+                        self._html_cleaner.clean,
+                        return_dtype=pl.Utf8,
+                    )
+                )
+                .otherwise(pl.col(col))
+                .alias(col)
+            )
 
         return df

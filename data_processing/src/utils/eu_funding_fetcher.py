@@ -10,10 +10,19 @@ import requests
 from data_processing.config import (
     EU_STATUS_FORTHCOMING,
     EU_STATUS_OPEN,
-    EU_ACTIVE_STATUS_CODES,
+    is_allowed_status,
 )
 
 logger = logging.getLogger(__name__)
+
+
+class TruncatedFetchError(RuntimeError):
+    """Raised when pagination stops early and the result set is known to be short.
+
+    Returning the partial set would put a dataset missing its tail into the Parquet
+    file, and `Pipeline._delete_removed_projects` would read the absent projects as
+    withdrawn and drop them from Qdrant.
+    """
 
 
 class EuFundingFetcher:
@@ -122,11 +131,6 @@ class EuFundingFetcher:
 
         return any(language.lower().startswith("en") for language in metadata_languages)
 
-    @staticmethod
-    def _is_allowed_status(status_code: str | None) -> bool:
-        """Return ``True`` when `status_code` is OPEN or FORTHCOMING."""
-        return status_code in EU_ACTIVE_STATUS_CODES
-
     def _fetch_page(self, page_number: int, page_size: int) -> list[dict]:
         """Request one page of OPEN/FORTHCOMING calls from the search endpoint.
 
@@ -193,7 +197,10 @@ class EuFundingFetcher:
     ) -> list[dict]:
         """Fetch all open and forthcoming English EU calls by paginating the API.
 
-        Stops when a page returns no results or `max_pages` is reached.
+        Stops when a page returns no results twice in a row. An empty page is retried
+        once because a single glitched response is indistinguishable from the end of
+        the result set, and treating it as the end silently truncates the dataset —
+        which downstream reads as "these projects were withdrawn".
 
         Args:
             page_size (int, default=50): Number of results to request per API page.
@@ -203,19 +210,34 @@ class EuFundingFetcher:
 
         Returns:
             list[dict]: Normalised call records filtered to OPEN/FORTHCOMING + English.
+
+        Raises:
+            TruncatedFetchError: If `max_pages` is reached, since the result set is
+                then known to be incomplete.
         """
         results: list[dict] = []
         page = 1
 
         while True:
             if max_pages is not None and page > max_pages:
-                logger.warning(
-                    "EU fetch: reached max_pages=%s, stopping pagination.", max_pages
+                raise TruncatedFetchError(
+                    f"EU fetch: reached max_pages={max_pages} with results still "
+                    f"arriving ({len(results)} collected). The result set is "
+                    "incomplete — raise EU_MAX_PAGES rather than indexing a "
+                    "truncated dataset."
                 )
-                break
             items = self._fetch_page(page, page_size)
             if not items:
-                break
+                # Retry once before concluding the result set has ended.
+                time.sleep(self._page_delay_seconds)
+                items = self._fetch_page(page, page_size)
+                if not items:
+                    break
+                logger.warning(
+                    "EU fetch: page %s came back empty and returned %s items on "
+                    "retry — the first response was spurious.",
+                    page, len(items),
+                )
 
             kept_for_page = 0
             dropped_status = 0
@@ -228,7 +250,7 @@ class EuFundingFetcher:
                 result_language = self._first_string(item.get("language"))
                 metadata_languages = self._normalize_meta_list(meta, "language")
 
-                if not self._is_allowed_status(status_code):
+                if not is_allowed_status(status_code):
                     dropped_status += 1
                     continue
                 if not self._is_english(result_language, metadata_languages):
@@ -246,6 +268,13 @@ class EuFundingFetcher:
                     "url": self._build_portal_topic_url(identifier),
                     "summary": item.get("summary"),
                     "description_html": self._get_meta_value(meta, "descriptionByte"),
+                    # The portal's "Destination" block: the shared aims of the work
+                    # programme destination a topic sits under. Stated on Horizon
+                    # topics only — roughly one open call in eight — so it is
+                    # routinely absent and `_get_meta_value` yields None.
+                    "destination_html": self._get_meta_value(
+                        meta, "destinationDetails"
+                    ),
                     "keywords": self._normalize_meta_list(meta, "keywords"),
                     "language": result_language,
                     "metadata_languages": metadata_languages,

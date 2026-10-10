@@ -6,9 +6,9 @@ Reads environment variables for API endpoints, credentials, and pagination setti
 
 | Constant | Type | Default | Description |
 |---|---|---|---|
-| `GERMAN_FUNDING_DATA_URL` | `str` | `"https://foerderdatenbankdump.fra1.cdn.digitaloceanspaces.com/data/parquet_data.zip"` | Source ZIP URL for the German federal funding dataset. Overridden by `GERMAN_FUNDING_DATA_URL` env var. |
+| `GERMAN_FUNDING_DATA_URL` | `str` | `"https://fdb.cdl.correlaid.org/data/programme.csv"` | CorrelAid's published Förderdatenbank CSV, rebuilt weekly from the BMWE XML export. Overridden by `GERMAN_FUNDING_DATA_URL` env var. |
 | `EU_API_URL` | `str` | `"https://api.tech.ec.europa.eu/search-api/prod/rest/search"` | EU Funding & Tenders Portal search endpoint. Overridden by `EU_API_URL` env var. |
-| `EU_API_KEY` | `str` | `""` | API key passed as the `apiKey` query parameter. Use `"SEDIA"` for the public key. Overridden by `EU_API_KEY` env var. |
+| `EU_API_KEY` | `str` | `""` | API key passed as the `apiKey` query parameter. The portal's search API key is `"SEDIA"`. Overridden by `EU_API_KEY` env var. |
 | `EU_PAGE_SIZE` | `int` | `50` | Number of records requested per EU API page. Overridden by `EU_PAGE_SIZE` env var. |
 | `EU_MAX_PAGES` | `int` | `100` | Maximum number of pages to fetch per pipeline run; acts as a safety guard. Overridden by `EU_MAX_PAGES` env var. |
 | `EU_REQUEST_TIMEOUT_SECONDS` | `float` | `30.0` | HTTP request timeout in seconds for EU API calls. Overridden by `EU_REQUEST_TIMEOUT_SECONDS` env var. |
@@ -25,9 +25,8 @@ Immutable frozen dataclass bundling file paths and the download URL for the Germ
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `data_dir` | `Path` | `Path("data")` | Base directory for all generated data artifacts. |
-| `zip_url` | `str` | `GERMAN_FUNDING_DATA_URL` | Remote URL of the source ZIP archive. |
-| `zip_path` | `Path` | `data/german_parquet_data.zip` | Local path where the downloaded ZIP is written. |
-| `raw_parquet` | `Path` | `data/german_parquet_data.parquet` | Path where the parquet file extracted from the ZIP is written. |
+| `csv_url` | `str` | `GERMAN_FUNDING_DATA_URL` | Remote URL of the published CSV distribution. |
+| `csv_path` | `Path` | `data/german_programme.csv` | Local path where the downloaded CSV is written; reused as a cache when a download fails. |
 | `cleaned_parquet` | `Path` | `data/german_parquet_data_cleaned.parquet` | Destination for the cleaned, HTML-stripped parquet output. |
 | `uuid_parquet` | `Path` | `data/german_parquet_data_uuid.parquet` | Destination for the UUID-enriched parquet output. |
 | `taxonomy_json` | `Path` | `data/taxonomy_german.json` | Destination for the versioned taxonomy contract artifact. |
@@ -51,3 +50,19 @@ Immutable frozen dataclass bundling API settings and file paths for the EU fundi
 | `cleaned_parquet` | `Path` | `data/eu_parquet_data_cleaned.parquet` | Destination for the cleaned parquet output. |
 | `uuid_parquet` | `Path` | `data/eu_parquet_data_uuid.parquet` | Destination for the UUID-enriched parquet output. |
 | `taxonomy_json` | `Path` | `data/taxonomy_eu.json` | Destination for the versioned taxonomy contract artifact. |
+
+## Companion module: `german_vocab`
+
+`data_processing/src/config/german_vocab.py` holds the export's closed vocabularies as
+`code -> German label` maps (`FOERDERART`, `FOERDERBERECHTIGTE`, `FOERDERBEREICH`,
+`FOERDERGEBER`, `FOERDERGEBIET`) plus `CODE_LABELS`, which keys them by SeFuSe column
+name for `GermanFundingCsvParser`.
+
+The published CSV states each taxonomy as a code (`zuschuss`), not a display name
+(`Zuschuss`), so these maps are what turn it back into something the UI can show and
+`TaxonomyContractBuilder` can canonicalise.
+
+The dicts are copied from `fdb_scraper/src/fdb_scraper/generated/vocab.py`, which
+upstream generates from an extracted export and commits, so a category change shows up
+there as a reviewable diff. Re-sync from it when the Förderdatenbank adds or relabels a
+category. A code with no entry is not lost — the parser keeps unknown codes verbatim.

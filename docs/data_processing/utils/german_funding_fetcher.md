@@ -10,7 +10,9 @@ Downloads a remote file via HTTP GET and writes it to disk.
 
 ### `download(url: str, target_path: Path) -> None`
 
-Fetch a URL and save the response body to `target_path`.
+Fetch a URL and stream the response body to `target_path`.
+
+Sends a browser-like `User-Agent`/`Accept` header set and streams the response to disk in 64 KiB chunks (`stream=True`), so a large export is never buffered entirely in memory. Request timeout is 120 seconds.
 
 **Parameters:**
 
